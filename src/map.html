@@ -162,7 +162,7 @@ const ICON = {
 function dayBase() { const d = new Date(Date.now() - DAY_START_MIN * 60000); d.setHours(0, 0, 0, 0); return d; }
 const nowMin = () => (Date.now() - dayBase().getTime()) / 60000;
 const dayKey = () => { const d = dayBase(); return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate(); };
-const hm = m => { const r = Math.round(m); return Math.floor(r / 60) + ':' + String(r % 60).padStart(2, '0'); };
+const hm = m => { const r = Math.round(m) % 1440; return Math.floor(r / 60) + ':' + String(r % 60).padStart(2, '0'); };
 const fmt = sec => { const a = Math.abs(Math.round(sec)); return Math.floor(a / 60) + ':' + String(a % 60).padStart(2, '0'); };
 const span = m => { const r = Math.max(0, Math.round(m)), h = Math.floor(r / 60), x = r % 60; return h && x ? `${h}時間${x}分` : h ? `${h}時間` : `${x}分`; };
 const secs = s => { const m = Math.floor(s / 60), x = s % 60; return m && x ? `${m}分${x}秒` : m ? `${m}分` : `${x}秒`; };
@@ -200,10 +200,12 @@ function parseDay(text) {
     const m = title.match(/^(\d{1,2}):(\d{2})(?:\s*[-~〜ー–−]\s*(\d{1,2}):(\d{2}))?[\s　]+(.+)$/);
     cur = { line: i + 1, name: m ? m[5] : title, start: null, end: null, steps: [] };
     if (m) {
-      cur.start = +m[1] * 60 + +m[2];
-      if (m[3]) cur.end = +m[3] * 60 + +m[4];
-      if (+m[1] > 29 || +m[2] > 59 || (m[3] && (+m[3] > 29 || +m[4] > 59))) errors.push(`${i + 1}行目「${line}」: 時刻が読み取れません。深夜は25:00のようにも書けます`);
-      else if (m[3] && cur.end <= cur.start) errors.push(`${i + 1}行目「${line}」: 終わりの時刻を開始より後にしてください`);
+      /* 0:00–3:59 belongs to the night of this day, so 01:00 means 25:00. */
+      const clockMin = (h, mi) => { const v = h * 60 + mi; return v < DAY_START_MIN ? v + 1440 : v; };
+      cur.start = clockMin(+m[1], +m[2]);
+      if (m[3]) { cur.end = clockMin(+m[3], +m[4]); if (cur.end <= cur.start && m[3] + m[4] !== m[1] + m[2]) cur.end += 1440; }
+      if (+m[1] > 29 || +m[2] > 59 || (m[3] && (+m[3] > 29 || +m[4] > 59))) errors.push(`${i + 1}行目「${line}」: 時刻が読み取れません。00:00〜23:59の形で書いてください`);
+      else if (m[3] && (cur.end <= cur.start || cur.end >= 30 * 60)) errors.push(`${i + 1}行目「${line}」: 終わりの時刻を確認してください。一日は朝4時で区切ります`);
     }
     blocks.push(cur);
   });
@@ -376,7 +378,7 @@ function openEditor() {
   el.innerHTML = `<div class="inner gutter">
     <div class="bar-top" style="position:static"><button class="link" id="back">戻る</button></div>
     <h1>今日の予定</h1>
-    <p class="help">空行でブロックを区切ります。タスクの行がなければ動かない予定、あればルーティンになります。時刻のないルーティンは「いつでも」に入ります。</p>
+    <p class="help">空行でブロックを区切ります。タスクの行がなければ動かない予定、あればルーティンになります。時刻のないルーティンは「いつでも」に入ります。0時から3時台は、その日の深夜として扱います。</p>
     <div class="format">07:00 朝の支度
 水を飲む 01:00 コップ1杯
 歯を磨く 03:00 奥歯の裏側まで
