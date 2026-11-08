@@ -65,6 +65,11 @@ svg{display:block;fill:currentColor}
 #text{width:100%;min-height:300px;background:var(--field);border:0;border-radius:14px;padding:14px;outline:0;resize:vertical;line-height:1.6}
 #text:focus{box-shadow:0 0 0 2px var(--fg)}
 .errors{margin:12px 0 0;padding:0;list-style:none;color:var(--warn);font-size:14px;display:grid;gap:4px;overflow-wrap:anywhere}
+.tabs{display:flex;gap:4px}
+.tab{min-height:38px;padding:0 11px;border-radius:10px;font-size:14px;font-weight:700;color:var(--muted)}
+.tab[aria-pressed=true]{background:var(--fg);color:#000}
+.day-title{font-size:clamp(44px,8vw,96px);font-weight:900;line-height:1.15}
+.day-date{color:var(--muted);font-size:18px;font-weight:700}
 .sec{font-size:20px;font-weight:900;margin:34px 0 6px;line-height:1.3}
 #token{width:100%;height:48px;background:var(--field);border:0;border-radius:12px;padding:0 14px;outline:0;margin-bottom:10px}
 #token:focus{box-shadow:0 0 0 2px var(--fg)}
@@ -166,7 +171,11 @@ const ICON = {
 /* Time */
 function dayBase() { const d = new Date(Date.now() - DAY_START_MIN * 60000); d.setHours(0, 0, 0, 0); return d; }
 const nowMin = () => (Date.now() - dayBase().getTime()) / 60000;
-const dayKey = () => { const d = dayBase(); return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate(); };
+const dateAt = n => new Date(dayBase().getTime() + n * 86400000);
+const keyAt = n => { const d = dateAt(n); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
+const dayKey = () => keyAt(0);
+const LABEL = ['今日', '明日', 'あさって'];
+const dateLabel = n => { const d = dateAt(n); return `${d.getMonth() + 1}月${d.getDate()}日（${'日月火水木金土'[d.getDay()]}）`; };
 const hm = m => { const r = Math.round(m) % 1440; return Math.floor(r / 60) + ':' + String(r % 60).padStart(2, '0'); };
 const fmt = sec => { const a = Math.abs(Math.round(sec)); return Math.floor(a / 60) + ':' + String(a % 60).padStart(2, '0'); };
 const span = m => { const r = Math.max(0, Math.round(m)), h = Math.floor(r / 60), x = r % 60; return h && x ? `${h}時間${x}分` : h ? `${h}時間` : `${x}分`; };
@@ -251,46 +260,77 @@ ${t(240)} 寝る準備
 }
 
 /* State */
-function load() { try { const d = JSON.parse(localStorage.getItem(KEY)); if (d && typeof d.text === 'string') return d; } catch (e) {} return null; }
-let store = load() || { text: sampleText(), sample: true, day: dayKey(), status: {}, called: {}, run: null };
+function load() {
+  try {
+    const d = JSON.parse(localStorage.getItem(KEY));
+    if (!d) return null;
+    if (d.days) return d;
+    if (typeof d.text !== 'string') return null;
+    /* Earlier versions kept a single plan; it becomes the plan of the day it was last used. */
+    const k = String(d.day || dayKey()).split('-').map((x, i) => i ? x.padStart(2, '0') : x).join('-');
+    d.days = { [k]: { text: d.text, remoteText: d.remoteText, remoteAt: d.remoteAt, sample: d.sample } };
+    delete d.text; delete d.remoteText; delete d.remoteAt; delete d.sample;
+    d.day = k;
+    return d;
+  } catch (e) { return null; }
+}
+let store = load() || { days: { [dayKey()]: { text: sampleText(), sample: true } }, day: dayKey(), status: {}, called: {}, run: null };
 function save() { try { localStorage.setItem(KEY, JSON.stringify(store)); } catch (e) {} }
-let day = parseDay(store.text), run = store.run || null, view = run ? 'run' : 'day', lastMinute = -1;
+save();
+const data = key => store.days[key] || (store.days[key] = { text: '' });
+let offset = 0;
+const viewKey = () => keyAt(offset);
+let day = parseDay(data(viewKey()).text), run = store.run || null, view = run ? 'run' : 'day', lastMinute = -1;
 
-/* Plans written by an AI arrive as today.txt in a private repository. The key stays on this device. */
-const REPO = 'naoki-research1213/tsugi-data', TOKEN_KEY = 'tsugi.map.token';
+/* Plans written by an AI arrive as days/YYYY-MM-DD.txt in a private repository. The key stays on this device. */
+const REPO = 'naoki-research1213/tsugi-data', TOKEN_KEY = 'tsugi.map.token', API = `https://api.github.com/repos/${REPO}`;
 const getToken = () => { try { return localStorage.getItem(TOKEN_KEY) || ''; } catch (e) { return ''; } };
-let sync = { kind: getToken() ? 'wait' : 'off', msg: '' }, pending = null, syncing = false, lastSync = 0;
+let sync = { kind: getToken() ? 'wait' : 'off', msg: '' }, pending = null, syncing = false, lastSync = 0, repoOK = '';
+const ghHeaders = (token, raw) => ({ Accept: raw ? 'application/vnd.github.raw+json' : 'application/vnd.github+json', Authorization: `Bearer ${token}`, 'X-GitHub-Api-Version': '2022-11-28' });
 function syncText() {
+  const d = data(viewKey());
   if (sync.kind === 'off' || sync.kind === 'wait') return '';
-  if (sync.kind === 'empty') return 'AIの予定はまだありません。';
+  if (sync.kind === 'empty') return 'この日のAIの予定はまだありません。';
   if (sync.kind === 'pending') return 'AIの新しい予定は、このルーティンが終わると反映されます。';
-  if (sync.kind === 'ok') return store.remoteAt && store.text === store.remoteText ? `AIの予定を表示中（${new Date(store.remoteAt).getHours()}:${String(new Date(store.remoteAt).getMinutes()).padStart(2, '0')}に更新）` : '';
+  if (sync.kind === 'ok') { if (!d.remoteAt || d.text !== d.remoteText) return ''; const t = new Date(d.remoteAt); return `AIの予定を表示中（${t.getHours()}:${String(t.getMinutes()).padStart(2, '0')}に更新）`; }
   return sync.msg;
 }
 function paintSync() {
   const bad = sync.kind === 'error';
   ['syncLine', 'syncStatus'].forEach(id => { const el = $(id); if (!el) return; el.textContent = syncText() || (id === 'syncStatus' && sync.kind === 'ok' ? '接続できています。' : ''); el.classList.toggle('bad', bad); });
 }
-function applyRemote(text) { store.text = text; store.remoteText = text; store.remoteAt = Date.now(); delete store.sample; day = parseDay(text); save(); lastMinute = -1; }
-function applyPending() { if (pending) { const t = pending; pending = null; sync = { kind: 'ok', msg: '' }; applyRemote(t); } }
+function applyRemote(key, text) { const d = data(key); d.text = text; d.remoteText = text; d.remoteAt = Date.now(); delete d.sample; if (key === viewKey()) day = parseDay(text); save(); lastMinute = -1; }
+function applyPending() { if (pending) { const p = pending; pending = null; sync = { kind: 'ok', msg: '' }; applyRemote(p.key, p.text); } }
+async function pull(key, token) {
+  const r = await fetch(`${API}/contents/days/${key}.txt`, { cache: 'no-cache', headers: ghHeaders(token, true) });
+  if (r.status === 401) return { kind: 'error', msg: 'GitHubのトークンが無効です。「編集」から貼り直してください。' };
+  if (r.status === 403) return { kind: 'error', msg: 'GitHubに読み取りを断られました。トークンのContents権限を確認してください。' };
+  if (r.status === 404) {
+    /* A missing day is normal. A key that cannot see the repository is not. */
+    if (repoOK !== token) {
+      const repo = await fetch(API, { cache: 'no-cache', headers: ghHeaders(token, false) });
+      if (!repo.ok) return { kind: 'error', msg: 'tsugi-dataを読めません。トークンの対象リポジトリを確認してください。' };
+      repoOK = token;
+    }
+    return { kind: 'empty', msg: '' };
+  }
+  if (!r.ok) return { kind: 'error', msg: `AIの予定を取得できません（${r.status}）。` };
+  const text = (await r.text()).trim();
+  if (!text) return { kind: 'empty', msg: '' };
+  if (text === data(key).remoteText) return { kind: 'ok', msg: '' };
+  const parsed = parseDay(text);
+  if (parsed.errors.length) return { kind: 'error', msg: `AIの予定に読めない行があるため、前の予定を表示しています。${parsed.errors[0]}` };
+  if (run && key === keyAt(0)) { pending = { key, text }; return { kind: 'pending', msg: '' }; }
+  applyRemote(key, text);
+  return { kind: 'ok', msg: '' };
+}
 async function syncNow() {
   const token = getToken();
   if (!token) { sync = { kind: 'off', msg: '' }; paintSync(); return; }
   if (syncing) return;
   syncing = true; lastSync = Date.now();
   try {
-    const r = await fetch(`https://api.github.com/repos/${REPO}/contents/today.txt`, { cache: 'no-cache', headers: { Accept: 'application/vnd.github.raw+json', Authorization: `Bearer ${token}`, 'X-GitHub-Api-Version': '2022-11-28' } });
-    if (!r.ok) {
-      const msg = r.status === 401 ? 'GitHubのトークンが無効です。「予定を編集」から貼り直してください。' : r.status === 404 ? 'today.txtを読めません。トークンの対象がtsugi-dataになっているか確認してください。' : r.status === 403 ? 'GitHubに読み取りを断られました。トークンのContents権限を確認してください。' : `AIの予定を取得できません（${r.status}）。`;
-      sync = { kind: 'error', msg }; return;
-    }
-    const text = (await r.text()).trim();
-    if (!text) { sync = { kind: 'empty', msg: '' }; return; }
-    if (text === store.remoteText) { if (!run || !pending) sync = { kind: 'ok', msg: '' }; return; }
-    const parsed = parseDay(text);
-    if (parsed.errors.length) { pending = null; sync = { kind: 'error', msg: `AIの予定に読めない行があるため、前の予定を表示しています。${parsed.errors[0]}` }; return; }
-    if (run) { pending = text; sync = { kind: 'pending', msg: '' }; return; }
-    sync = { kind: 'ok', msg: '' }; applyRemote(text);
+    for (const key of new Set([keyAt(0), viewKey()])) { const res = await pull(key, token); if (key === viewKey()) sync = res; }
   } catch (e) {
     sync = { kind: 'error', msg: 'AIの予定を確認できません。通信を確認してください。' };
   } finally { syncing = false; paintSync(); }
@@ -314,6 +354,7 @@ async function holdWake() { try { if (!wake && navigator.wakeLock) { wake = awai
 
 /* Places every block on today's clock. Unstarted routines slide later; fixed events never move. */
 function schedule(now) {
+  if (offset) return day.timed.map(b => ({ b, state: b.routine ? 'plan' : 'fixed', start: b.start, end: b.start + b.dur }));
   let cursor = now; const items = [];
   day.timed.forEach(b => {
     const st = store.status[b.key];
@@ -343,29 +384,45 @@ function callDue(items, now) {
   });
 }
 function renderDay() {
-  if (store.day !== dayKey()) { store.day = dayKey(); store.status = {}; store.called = {}; save(); }
-  const now = nowMin(), items = schedule(now);
-  callDue(items, now);
-  const cur = items.find(x => x.state === 'fixed' && x.start <= now && now < x.end);
-  const next = items.find(x => x.state === 'wait');
-  const clockHTML = [...hm(Math.floor(now) % 1440)].map(c => `<i class="${c === ':' ? 'c' : ''}">${c}</i>`).join('');
-  $('now').innerHTML = `<div class="bar-top"><span class="brand">ツギ</span><button class="link" id="edit">予定を編集</button></div>
-    <div class="clock" aria-label="現在時刻">${clockHTML}</div>
-    ${store.sample ? '<p class="hint">表示中の予定は例です。「予定を編集」から差し替えられます。</p>' : ''}
-    ${cur ? `<div class="cur">${esc(cur.b.name)}<span>あと${span(cur.end - now)}</span></div>` : ''}
-    ${next ? `<div class="next" style="--c:${next.b.c}">
-      <h2>${esc(next.b.name)}</h2>
-      <p>${next.due ? '時間です' : `${hm(next.start)}から、あと${span(next.start - now)}`}、所要${secs(Math.round(next.b.dur * 60))}</p>
-      ${next.clash ? `<p style="grid-column:1/-1"><span class="badge">${esc(next.clash.name)}に${span(next.clash.by)}食い込む</span></p>` : ''}
-      <button class="go" data-start="${esc(next.b.key)}" aria-label="${esc(next.b.name)}を始める">${ICON.play}</button>
-    </div>` : `<p class="nothing">${items.some(x => x.state === 'fixed') ? 'この後のルーティンはありません' : '今日の予定はもうありません'}</p>`}
-    <p class="hint" id="syncLine"></p>
-    ${audio && audio.state === 'running' ? '' : '<p class="hint" id="soundHint">画面を一度タップすると、時間のチャイムが鳴るようになります。</p>'}`;
+  if (store.day !== dayKey()) {
+    store.day = dayKey(); store.status = {}; store.called = {};
+    const oldest = keyAt(-14); Object.keys(store.days).forEach(k => { if (k < oldest) delete store.days[k]; });
+    save(); day = parseDay(data(viewKey()).text); lastSync = 0;
+  }
+  const live = offset === 0, now = nowMin(), items = schedule(now), d = data(viewKey());
+  if (live) callDue(items, now);
+  const tabs = LABEL.map((l, i) => `<button class="tab" data-day="${i}" aria-pressed="${i === offset}">${l}</button>`).join('');
+  const top = `<div class="bar-top"><span class="brand">ツギ</span><div class="tabs">${tabs}</div><button class="link" id="edit">編集</button></div>`;
+  const sampleNote = d.sample ? '<p class="hint">表示中の予定は例です。「編集」から差し替えられます。</p>' : '';
+  if (live) {
+    const cur = items.find(x => x.state === 'fixed' && x.start <= now && now < x.end);
+    const next = items.find(x => x.state === 'wait');
+    const clockHTML = [...hm(Math.floor(now) % 1440)].map(c => `<i class="${c === ':' ? 'c' : ''}">${c}</i>`).join('');
+    $('now').innerHTML = `${top}
+      <div class="clock" aria-label="現在時刻">${clockHTML}</div>
+      ${sampleNote}
+      ${cur ? `<div class="cur">${esc(cur.b.name)}<span>あと${span(cur.end - now)}</span></div>` : ''}
+      ${next ? `<div class="next" style="--c:${next.b.c}">
+        <h2>${esc(next.b.name)}</h2>
+        <p>${next.due ? '時間です' : `${hm(next.start)}から、あと${span(next.start - now)}`}、所要${secs(Math.round(next.b.dur * 60))}</p>
+        ${next.clash ? `<p style="grid-column:1/-1"><span class="badge">${esc(next.clash.name)}に${span(next.clash.by)}食い込む</span></p>` : ''}
+        <button class="go" data-start="${esc(next.b.key)}" aria-label="${esc(next.b.name)}を始める">${ICON.play}</button>
+      </div>` : `<p class="nothing">${items.length ? (items.some(x => x.state === 'fixed') ? 'この後のルーティンはありません' : '今日の予定はもうありません') : '今日の予定はまだありません。「編集」から入れられます。'}</p>`}
+      <p class="hint" id="syncLine"></p>
+      ${audio && audio.state === 'running' ? '' : '<p class="hint" id="soundHint">画面を一度タップすると、時間のチャイムが鳴るようになります。</p>'}`;
+  } else {
+    const routines = day.timed.filter(b => b.routine).length;
+    $('now').innerHTML = `${top}
+      <div><div class="day-title">${LABEL[offset]}</div><div class="day-date">${dateLabel(offset)}</div></div>
+      <p class="nothing">${items.length ? `${items.length}件の予定${routines ? `、ルーティン${routines}個` : ''}。最初は${hm(items[0].start)}の${esc(items[0].b.name)}` : 'この日の予定はまだありません。「編集」から入れられます。'}</p>
+      <p class="hint" id="syncLine"></p>`;
+  }
   $('edit').onclick = openEditor;
+  document.querySelectorAll('#now [data-day]').forEach(b => b.onclick = () => { offset = +b.dataset.day; day = parseDay(data(viewKey()).text); sync = { kind: getToken() ? 'wait' : 'off', msg: '' }; renderDay(); syncNow(); });
   paintSync();
   document.querySelectorAll('#now [data-start]').forEach(b => b.onclick = () => startRun(b.dataset.start));
 
-  const parts = []; let prevEnd = items.length ? Math.min(items[0].start, now) : now;
+  const parts = []; let prevEnd = items.length ? (live ? Math.min(items[0].start, now) : items[0].start) : now;
   items.forEach(it => {
     const gap = it.start - prevEnd;
     if (gap >= 5) parts.push(`<div class="free" data-a="${prevEnd}" data-b="${it.start}" style="flex:${Math.min(gap, 120)} 0 ${gap >= 30 ? 26 : 8}px">${gap >= 30 ? `空き ${span(gap)}` : ''}</div>`);
@@ -375,18 +432,19 @@ function renderDay() {
       ${it.state === 'done' ? `<span class="m">完了</span>` : it.state === 'skip' ? '<span class="m">今日はやらない</span>' : tasks ? `<span class="m">${tasks}${it.moved ? `、${hm(b.start)}から移動` : ''}</span>` : ''}
       ${it.clash ? `<span><span class="badge">${esc(it.clash.name)}に${span(it.clash.by)}食い込む</span></span>` : ''}`;
     const style = `flex:${Math.max(it.end - it.start, 1)} 0 ${it.clash || (tasks && it.state === 'wait') ? 64 : 42}px;--c:${b.c || 'transparent'}`;
-    parts.push(b.routine
+    parts.push(b.routine && live
       ? `<button class="${cls}" style="${style}" data-a="${it.start}" data-b="${it.end}" data-key="${esc(b.key)}">${body}</button>`
       : `<div class="${cls}" style="${style}" data-a="${it.start}" data-b="${it.end}">${body}</div>`);
     prevEnd = Math.max(prevEnd, it.end);
   });
   const map = $('map');
-  if (innerWidth < 900 || innerHeight > innerWidth) map.style.height = Math.max(items.length * 74, 900) + 'px'; else map.style.height = '';
-  map.innerHTML = parts.join('') + `<div class="line" id="line"><b>${hm(Math.floor(now) % 1440)}</b></div>`;
+  map.style.height = items.length && (innerWidth < 900 || innerHeight > innerWidth) ? Math.max(items.length * 74, 900) + 'px' : '';
+  map.innerHTML = parts.join('') + (live ? `<div class="line" id="line"><b>${hm(Math.floor(now) % 1440)}</b></div>` : '');
   map.querySelectorAll('[data-key]').forEach(el => el.onclick = () => openBlock(el.dataset.key));
-  placeLine(now);
-  $('any').innerHTML = day.anytime.filter(b => b.routine).length ? `<h3>いつでも</h3>` + day.anytime.filter(b => b.routine).map((b, i) => `<button data-any="${i}"><span>${esc(b.name)}</span><span>${secs(Math.round(b.dur * 60))}</span></button>`).join('') : '';
-  $('any').querySelectorAll('[data-any]').forEach(el => el.onclick = () => startAny(day.anytime.filter(b => b.routine)[+el.dataset.any]));
+  if (live) placeLine(now);
+  const anytime = live ? day.anytime.filter(b => b.routine) : [];
+  $('any').innerHTML = anytime.length ? `<h3>いつでも</h3>` + anytime.map((b, i) => `<button data-any="${i}"><span>${esc(b.name)}</span><span>${secs(Math.round(b.dur * 60))}</span></button>`).join('') : '';
+  $('any').querySelectorAll('[data-any]').forEach(el => el.onclick = () => startAny(anytime[+el.dataset.any]));
 }
 function placeLine(now) {
   const map = $('map'), line = $('line'); if (!line) return;
@@ -424,18 +482,18 @@ function openEditor() {
   const el = document.createElement('div'); el.className = 'editor'; el.id = 'editor';
   el.innerHTML = `<div class="inner gutter">
     <div class="bar-top" style="position:static"><button class="link" id="back">戻る</button></div>
-    <h1>今日の予定</h1>
+    <h1>${LABEL[offset]}の予定</h1>
     <p class="help">空行でブロックを区切ります。タスクの行がなければ動かない予定、あればルーティンになります。時刻のないルーティンは「いつでも」に入ります。0時から3時台は、その日の深夜として扱います。</p>
     <div class="format">07:00 朝の支度
 水を飲む 01:00 コップ1杯
 歯を磨く 03:00 奥歯の裏側まで
 
 09:00-12:00 研究</div>
-    <textarea id="text" aria-label="今日の予定のテキスト">${esc(store.text)}</textarea>
+    <textarea id="text" aria-label="予定のテキスト">${esc(data(viewKey()).text)}</textarea>
     <ul class="errors" id="errs"></ul>
     <button class="btn" id="apply">地図に反映</button>
     <h2 class="sec">AIから登録</h2>
-    <p class="help">AIがtsugi-dataのtoday.txtを更新すると、1分以内に地図へ反映されます。ここで手で編集した内容は、次にAIが更新すると置き換わります。</p>
+    <p class="help">AIがtsugi-dataのdays/日付.txtを更新すると、1分ほどで地図へ反映されます。ここで手で編集した内容は、次にAIが更新すると置き換わります。</p>
     <input id="token" type="password" autocomplete="off" aria-label="GitHubの読み取り用トークン" placeholder="${getToken() ? '登録済み。変更するときだけ入力' : 'GitHubの読み取り用トークン'}">
     <div class="pair"><button class="btn quiet" id="tokDel" ${getToken() ? '' : 'disabled'}>トークンを削除</button><button class="btn quiet" id="tokSave">保存して確認</button></div>
     <p class="help" id="syncStatus" style="margin-top:10px"></p></div>`;
@@ -453,11 +511,11 @@ function openEditor() {
   $('tokDel').onclick = () => {
     try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
     $('tokDel').disabled = true; $('token').placeholder = 'GitHubの読み取り用トークン';
-    sync = { kind: 'off', msg: '' }; paintSync(); $('syncStatus').textContent = 'トークンを削除しました。'; renderDay();
+    repoOK = ''; sync = { kind: 'off', msg: '' }; paintSync(); $('syncStatus').textContent = 'トークンを削除しました。'; renderDay();
   };
   $('back').onclick = () => el.remove();
   $('apply').onclick = () => {
-    store.text = ta.value; delete store.sample; day = parseDay(store.text); save(); el.remove(); renderDay();
+    const d = data(viewKey()); d.text = ta.value; delete d.sample; day = parseDay(d.text); save(); el.remove(); renderDay();
   };
 }
 
