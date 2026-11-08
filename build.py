@@ -49,10 +49,10 @@ html = f"""<!doctype html>
     ],
 }, ensure_ascii=False, indent=2), encoding="utf-8")
 
-def icon(px, inset):
+def icon(px, inset, lemon=(247, 224, 122)):
     """A draining color level with a two-tone 'next' mark, the same idea as the timer screen."""
     s = 1024
-    lemon, black, white = (247, 224, 122), (0, 0, 0), (255, 255, 255)
+    black, white = (0, 0, 0), (255, 255, 255)
     level = int(s * 0.56)
     base = Image.new("RGB", (s, s), black)
     d = ImageDraw.Draw(base); d.rectangle([0, level, s, s], fill=lemon)
@@ -85,6 +85,7 @@ self.addEventListener('activate', e => e.waitUntil(
 self.addEventListener('fetch', e => {{
   if (e.request.method !== 'GET') return;
   const url = new URL(e.request.url);
+  if (url.pathname.startsWith(new URL('map/', self.registration.scope).pathname)) return; // The day map has its own offline cache.
   const fonts = url.hostname === 'fonts.googleapis.com' || url.hostname === 'fonts.gstatic.com';
   if (e.request.mode === 'navigate') {{
     // Latest version when online, cached app when offline.
@@ -98,4 +99,45 @@ self.addEventListener('fetch', e => {{
   }}
 }});
 """, encoding="utf-8")
-print("built", version, len(html))
+
+# Day map: a separate installable app at /map/
+MAP = DIST / "map"
+MAP.mkdir(exist_ok=True)
+map_src = (ROOT / "src/map.html").read_text(encoding="utf-8").replace("__DIGITS__", digits)
+cut = map_src.index('<div class="shell">')
+map_head = map_src[:cut].replace('<meta name="claude:viewport-fit-sides" content="cover">\n', "")
+map_html = f"""<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+{map_head}</head>
+<body>
+{map_src[cut:]}{register}
+</body>
+</html>
+"""
+(MAP / "index.html").write_text(map_html, encoding="utf-8")
+(MAP / "manifest.webmanifest").write_text(json.dumps({
+    "name": "ツギの地図", "short_name": "ツギの地図", "description": "一日の予定を地図で見て、ルーティンをタイマーで進める",
+    "lang": "ja", "start_url": "./", "scope": "./", "display": "standalone",
+    "background_color": "#000000", "theme_color": "#000000",
+    "icons": [
+        {"src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+        {"src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+        {"src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"},
+    ],
+}, ensure_ascii=False, indent=2), encoding="utf-8")
+mint = (142, 230, 194)
+icon(192, .12, mint).save(MAP / "icon-192.png")
+icon(512, .12, mint).save(MAP / "icon-512.png")
+icon(512, .32, mint).save(MAP / "icon-maskable-512.png")
+map_version = hashlib.sha256(map_html.encode()).hexdigest()[:10]
+root_sw = (DIST / "sw.js").read_text(encoding="utf-8").splitlines(keepends=True)
+map_sw = "".join(l for l in root_sw if "startsWith(new URL('map/'" not in l).replace(f"tsugi-{version}", f"tsugi-map-{map_version}")
+(MAP / "sw.js").write_text(map_sw, encoding="utf-8")
+print("built", version, map_version)

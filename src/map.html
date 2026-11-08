@@ -1,0 +1,516 @@
+<title>ツギの地図</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@500;700;900&display=swap">
+<style>
+/* Layout: the day as one tall column of blocks sized by duration; a block opens into the draining timer. */
+@font-face{font-family:"Tsugi Digits";src:url(__DIGITS__) format("woff2");font-weight:600;font-display:block}
+:root{color-scheme:dark;--bg:#000;--fg:#fff;--muted:#a09eaa;--line:#2b2a33;--raised:#17161c;--field:#201f27;--warn:#ff9fa8;--side:36vw;
+  --jp:"Zen Maru Gothic","Noto Sans JP","Noto Sans CJK JP",sans-serif;--num:"Tsugi Digits","Zen Maru Gothic",sans-serif}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{min-height:100%}
+body{margin:0;background:var(--bg);color:var(--fg);font:500 16px/1.6 var(--jp);overscroll-behavior-y:none}
+button,input,textarea{font:inherit;color:inherit}
+button{background:none;border:0;padding:0;cursor:pointer;text-align:inherit}
+:focus-visible{outline:2px solid var(--fg);outline-offset:2px;border-radius:6px}
+svg{display:block;fill:currentColor}
+.gutter{padding-inline:max(16px,env(safe-area-inset-left,0px)) max(16px,env(safe-area-inset-right,0px))}
+
+/* Day */
+.now{padding-top:calc(16px + env(safe-area-inset-top,0px));padding-bottom:18px;display:flex;flex-direction:column;gap:16px;min-width:0}
+.bar-top{display:flex;justify-content:space-between;align-items:center;min-height:44px}
+.brand{font-weight:900;font-size:22px}
+.link{min-height:44px;font-weight:700;color:var(--muted)}
+.clock{font:600 min(26vw,132px)/1 var(--num);display:flex}
+.clock i{font-style:normal;display:block;width:.61em;text-align:center}
+.clock i.c{width:.3em}
+.cur{font-size:18px;font-weight:700;overflow-wrap:anywhere}
+.cur span{color:var(--muted);font-weight:500;font-size:15px;margin-left:8px;white-space:nowrap}
+.next{background:var(--c);color:#000;border-radius:20px;padding:18px;display:grid;grid-template-columns:minmax(0,1fr) 72px;gap:4px 14px;align-items:center}
+.next h2{margin:0;font-size:clamp(24px,3vw,44px);font-weight:900;line-height:1.3;overflow-wrap:anywhere}
+.next p{margin:0;font-weight:700;font-size:15px}
+.go{width:72px;height:72px;border-radius:50%;background:#000;color:var(--c);display:grid;place-items:center;grid-row:1/3;grid-column:2}
+.go:active{transform:scale(.93)}
+.nothing{color:var(--muted);margin:0;font-size:18px}
+.badge{display:inline-block;background:#000;color:var(--warn);font-size:13px;font-weight:700;border-radius:7px;padding:1px 8px;line-height:1.6}
+.hint{margin:0;color:var(--muted);font-size:13px}
+.side{padding-bottom:calc(32px + env(safe-area-inset-bottom,0px));min-width:0}
+.map{position:relative;display:flex;flex-direction:column;gap:3px}
+.blk{display:flex;flex-direction:column;justify-content:center;min-height:0;border-radius:11px;padding:6px 12px;background:var(--c);color:#000;width:100%;overflow:hidden}
+.blk .row{display:flex;gap:10px;align-items:baseline;min-width:0}
+.blk .t{font:600 15px var(--num);flex:none}
+.blk .n{font-weight:700;font-size:16px;line-height:1.3;overflow-wrap:anywhere;min-width:0}
+.blk .m{font-size:13px;font-weight:700}
+.blk.plain{background:var(--raised);color:var(--fg)}
+.blk.finished{background:none;color:var(--muted);box-shadow:inset 0 0 0 1px var(--line)}
+.blk.skip{background:none;color:var(--muted);box-shadow:inset 0 0 0 1px var(--line)}
+.blk.skip .n{text-decoration:line-through}
+.blk.past{opacity:.5}
+.blk.due{animation:call 1.4s ease-in-out infinite}
+.blk.run-now{box-shadow:inset 0 0 0 3px #fff}
+@keyframes call{50%{box-shadow:0 0 0 4px #fff}}
+.free{display:flex;align-items:center;padding-left:12px;color:var(--muted);font-size:13px;min-height:0;overflow:hidden}
+.line{position:absolute;left:-4px;right:-4px;height:0;border-top:2px solid #fff;z-index:2;pointer-events:none}
+.line b{position:absolute;right:0;top:-12px;background:#fff;color:#000;border-radius:6px;padding:0 7px;font:600 14px/22px var(--num)}
+.any{margin-top:22px}
+.any h3{margin:0 0 6px;font-size:15px;color:var(--muted);font-weight:700}
+.any button{display:flex;justify-content:space-between;width:100%;min-height:46px;align-items:center;border-top:1px solid var(--line);font-weight:700;gap:12px}
+.any span:last-child{color:var(--muted);font-size:14px;flex:none}
+
+/* Editor */
+.editor{position:fixed;inset:0;background:#000;overflow-y:auto;z-index:4}
+.editor .inner{max-width:640px;margin:0 auto;padding-block:calc(14px + env(safe-area-inset-top,0px)) calc(32px + env(safe-area-inset-bottom,0px))}
+.editor h1{font-size:26px;font-weight:900;margin:0 0 6px;line-height:1.3}
+.help{color:var(--muted);font-size:14px;margin:0 0 10px}
+.format{background:var(--raised);border-radius:12px;padding:12px 14px;margin:0 0 12px;font-size:14px;line-height:1.7;overflow-x:auto;white-space:pre}
+#text{width:100%;min-height:300px;background:var(--field);border:0;border-radius:14px;padding:14px;outline:0;resize:vertical;line-height:1.6}
+#text:focus{box-shadow:0 0 0 2px var(--fg)}
+.errors{margin:12px 0 0;padding:0;list-style:none;color:var(--warn);font-size:14px;display:grid;gap:4px;overflow-wrap:anywhere}
+.btn{display:block;width:100%;text-align:center;height:56px;border-radius:16px;background:var(--fg);color:#000;font-weight:700;font-size:17px;margin-top:14px}
+.btn:disabled{background:var(--field);color:var(--muted);cursor:default}
+.btn.quiet{background:var(--field);color:var(--fg);margin-top:0}
+
+/* Timer */
+.run{position:fixed;inset:0;overflow:hidden;background:#000;user-select:none;-webkit-user-select:none;z-index:3}
+.layer{position:absolute;inset:0;display:flex;flex-direction:column;padding-top:calc(10px + env(safe-area-inset-top,0px));padding-bottom:calc(24px + env(safe-area-inset-bottom,0px));padding-inline:max(16px,env(safe-area-inset-left,0px)) max(16px,env(safe-area-inset-right,0px));color:#fff;background:#000}
+.layer.level{color:#000;background:var(--c);pointer-events:none;clip-path:inset(calc((1 - var(--r))*100%) 0 0 0);transition:clip-path .28s linear}
+.run.jump .layer.level{transition:clip-path .62s cubic-bezier(.16,.84,.28,1)}
+.r-top{display:grid;grid-template-columns:48px minmax(0,1fr) 48px;align-items:center;min-height:48px}
+.icon{width:48px;height:48px;display:grid;place-items:center}
+.r-title{text-align:center;font-size:14px;font-weight:700;line-height:1.3;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.r-pos{font:600 15px var(--num);display:block}
+.r-main{flex:1;display:flex;flex-direction:column;align-items:center;min-height:0;text-align:center}
+.r-main>h1,.r-main>.digits,.r-main>.plus{flex:none}
+.r-gap{flex:.55 1 0;min-height:0}
+.run.no-note .r-gap{flex:1 1 0}
+.r-note{flex:1 1 0;min-height:0;width:100%;max-width:520px;margin:14px 0 10px;overflow:hidden;font-weight:700;line-height:1.55;white-space:pre-line;overflow-wrap:anywhere;text-wrap:pretty}
+.r-note.clamp{display:-webkit-box;-webkit-box-orient:vertical}
+.r-step{font-size:clamp(26px,8vw,40px);font-weight:900;line-height:1.3;margin:0;text-wrap:balance;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.digits{font:600 min(29vw,21vh,190px)/1.08 var(--num);display:flex;justify-content:center;margin:2px 0 4px}
+.digits i{font-style:normal;display:block;width:.61em;text-align:center}
+.digits i.c{width:.3em}
+.digits i.s{width:.5em}
+.run.paused .digits{animation:breathe 1.6s ease-in-out infinite}
+@keyframes breathe{50%{opacity:.62}}
+.plus{height:44px;padding:0 20px;border-radius:22px;border:2px solid currentColor;font-weight:700;font-size:16px}
+.r-next{text-align:center;font-size:15px;line-height:1.5;margin:0 0 18px;min-height:45px;overflow-wrap:anywhere}
+.r-next b{font-weight:700}
+.r-ctl{display:grid;grid-template-columns:1fr 88px 1fr;align-items:center;justify-items:center;max-width:360px;width:100%;margin:0 auto}
+.ctl{display:grid;justify-items:center;gap:2px;min-width:72px;min-height:64px;align-content:center;font-size:13px;font-weight:700}
+.main-ctl{width:88px;height:88px;border-radius:50%;display:grid;place-items:center;border:3px solid currentColor}
+.ctl:active,.main-ctl:active,.plus:active{transform:scale(.94)}
+
+/* Sheet and finish */
+.scrim{position:fixed;inset:0;background:rgba(0,0,0,.66);display:flex;align-items:flex-end;justify-content:center;z-index:5}
+.sheet{width:100%;max-width:560px;background:var(--raised);border-radius:22px 22px 0 0;padding-top:24px;padding-bottom:calc(20px + env(safe-area-inset-bottom,0px));padding-inline:max(16px,env(safe-area-inset-left,0px)) max(16px,env(safe-area-inset-right,0px));display:grid;gap:10px}
+.sheet h2{margin:0;font-size:20px;font-weight:900;overflow-wrap:anywhere}
+.sheet p{margin:0 0 6px;color:var(--muted);font-size:14px}
+.sheet .btn{margin-top:0}
+.done{position:fixed;inset:0;display:flex;flex-direction:column;background:#000;overflow-y:auto;z-index:3}
+.stripes{flex:1 0 auto;display:flex;flex-direction:column;min-height:52%}
+.stripe{min-height:46px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding-inline:max(16px,env(safe-area-inset-left,0px)) max(16px,env(safe-area-inset-right,0px));color:#000;font-weight:700;background:var(--c);transform-origin:left;animation:sweep .55s cubic-bezier(.16,.84,.28,1) backwards;animation-delay:calc(var(--n)*70ms)}
+.stripe span:first-child{min-width:0;overflow-wrap:anywhere;line-height:1.3}
+.stripe span:last-child{font:600 18px var(--num)}
+@keyframes sweep{from{transform:scaleX(0)}}
+.done-foot{padding-top:24px;padding-bottom:calc(20px + env(safe-area-inset-bottom,0px));padding-inline:max(16px,env(safe-area-inset-left,0px)) max(16px,env(safe-area-inset-right,0px));display:grid;gap:4px}
+.done-foot h1{margin:0;font-size:30px;font-weight:900;line-height:1.3;overflow-wrap:anywhere}
+.done-foot p{margin:0 0 4px;color:var(--muted)}
+
+/* A monitor keeps the map on the right, even while the timer runs. */
+@media (min-width:900px) and (orientation:landscape){
+  html,body{height:100%}
+  .shell{display:grid;grid-template-columns:minmax(0,1fr) var(--side);height:100%}
+  .now{justify-content:center;padding-inline:clamp(32px,6vw,110px);position:relative}
+  .bar-top{position:absolute;top:calc(14px + env(safe-area-inset-top,0px));left:clamp(32px,6vw,110px);right:clamp(32px,6vw,110px)}
+  .clock{font-size:min(19vw,34vh)}
+  .next{padding:28px 30px}
+  .cur{font-size:26px}
+  .side{height:100%;overflow-y:auto;padding-block:16px;display:flex;flex-direction:column}
+  .map{flex:1 0 auto}
+  .blk .n{font-size:18px}
+  .run,.done{right:var(--side)}
+}
+@media (prefers-reduced-motion:reduce){
+  .layer.level,.run.jump .layer.level{transition:none}
+  .run.paused .digits,.blk.due{animation:none}
+  .blk.due{box-shadow:0 0 0 3px #fff}
+  .stripe{animation:none}
+}
+</style>
+<div class="shell">
+  <section class="now gutter" id="now"></section>
+  <section class="side gutter"><div class="map" id="map"></div><div class="any" id="any"></div></section>
+</div>
+<div id="overlay"></div>
+<script>
+(() => {
+'use strict';
+const KEY = 'tsugi.map.v1', PAL = ['#f7e07a', '#8ee6c2', '#8fc9ff', '#c9b4ff', '#ffb3c8', '#ffc896'];
+const DAY_START_MIN = 240; /* The day rolls over at 4:00, so 25:00 still belongs to today. */
+const $ = id => document.getElementById(id);
+const overlay = $('overlay');
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const color = i => PAL[i % PAL.length];
+const ICON = {
+  play: '<svg width="34" height="34" viewBox="0 0 24 24"><path d="M8 5.6c0-1.1 1.2-1.8 2.2-1.2l10 6.4c.9.6.9 1.9 0 2.4l-10 6.4c-1 .6-2.2-.1-2.2-1.2z"/></svg>',
+  pause: '<svg width="38" height="38" viewBox="0 0 24 24"><rect x="6" y="4.5" width="4.4" height="15" rx="1.6"/><rect x="13.6" y="4.5" width="4.4" height="15" rx="1.6"/></svg>',
+  next: '<svg width="32" height="32" viewBox="0 0 24 24"><path d="M4.5 6.4c0-1 1.1-1.6 2-1l9 5.6c.8.5.8 1.6 0 2.1l-9 5.6c-.9.6-2 0-2-1z"/><rect x="17" y="5" width="3" height="14" rx="1.3"/></svg>',
+  prev: '<svg width="32" height="32" viewBox="0 0 24 24"><path d="M19.5 6.4c0-1-1.1-1.6-2-1l-9 5.6c-.8.5-.8 1.6 0 2.1l9 5.6c.9.6 2 0 2-1z"/><rect x="4" y="5" width="3" height="14" rx="1.3"/></svg>',
+  close: '<svg width="24" height="24" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></svg>'
+};
+
+/* Time */
+function dayBase() { const d = new Date(Date.now() - DAY_START_MIN * 60000); d.setHours(0, 0, 0, 0); return d; }
+const nowMin = () => (Date.now() - dayBase().getTime()) / 60000;
+const dayKey = () => { const d = dayBase(); return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate(); };
+const hm = m => { const r = Math.round(m); return Math.floor(r / 60) + ':' + String(r % 60).padStart(2, '0'); };
+const fmt = sec => { const a = Math.abs(Math.round(sec)); return Math.floor(a / 60) + ':' + String(a % 60).padStart(2, '0'); };
+const span = m => { const r = Math.max(0, Math.round(m)), h = Math.floor(r / 60), x = r % 60; return h && x ? `${h}時間${x}分` : h ? `${h}時間` : `${x}分`; };
+const secs = s => { const m = Math.floor(s / 60), x = s % 60; return m && x ? `${m}分${x}秒` : m ? `${m}分` : `${x}秒`; };
+
+/* Text → day */
+function readTime(token) {
+  let m;
+  if ((m = token.match(/^(\d{1,3}):(\d{1,2})$/))) return +m[2] > 59 ? -1 : +m[1] * 60 + +m[2];
+  if ((m = token.match(/^(\d{1,3})$/))) return +m[1] * 60;
+  if ((m = token.match(/^(?:(\d{1,3})分)?(?:(\d{1,2})秒)?$/)) && (m[1] || m[2])) return (+m[1] || 0) * 60 + (+m[2] || 0);
+  return null;
+}
+function parseTask(line) {
+  const tokens = line.replace(/^(?:[-*][\s　]+|[・•][\s　]*|\d+[.)][\s　]+)/, '').split(/[\s　]+/);
+  const colon = tokens.findIndex((t, i) => i > 0 && /^\d{1,3}:\d{1,2}$/.test(t));
+  const at = colon > 0 ? colon : tokens.findIndex((t, i) => i > 0 && readTime(t) !== null);
+  if (at < 1) return { error: '時間が読み取れません。mm:ss の形で書いてください' };
+  const sec = readTime(tokens[at]);
+  if (sec <= 0) return { error: '時間は0:01以上で、秒は59以下にしてください' };
+  return { name: tokens.slice(0, at).join(' '), sec, note: tokens.slice(at + 1).join(' ') };
+}
+function parseDay(text) {
+  const t = text.replace(/\r/g, '').replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0)).replace(/：/g, ':');
+  const blocks = [], errors = []; let cur = null;
+  t.split('\n').forEach((raw, i) => {
+    const line = raw.trim();
+    if (line.startsWith('```')) return;
+    if (!line) { cur = null; return; }
+    if (cur) {
+      const task = parseTask(line);
+      if (task.error) { errors.push(`${i + 1}行目「${line}」: ${task.error}`); cur.bad = true; } else cur.steps.push(task);
+      return;
+    }
+    const title = line.replace(/^#+\s*/, '');
+    const m = title.match(/^(\d{1,2}):(\d{2})(?:\s*[-~〜ー–−]\s*(\d{1,2}):(\d{2}))?[\s　]+(.+)$/);
+    cur = { line: i + 1, name: m ? m[5] : title, start: null, end: null, steps: [] };
+    if (m) {
+      cur.start = +m[1] * 60 + +m[2];
+      if (m[3]) cur.end = +m[3] * 60 + +m[4];
+      if (+m[1] > 29 || +m[2] > 59 || (m[3] && (+m[3] > 29 || +m[4] > 59))) errors.push(`${i + 1}行目「${line}」: 時刻が読み取れません。深夜は25:00のようにも書けます`);
+      else if (m[3] && cur.end <= cur.start) errors.push(`${i + 1}行目「${line}」: 終わりの時刻を開始より後にしてください`);
+    }
+    blocks.push(cur);
+  });
+  blocks.forEach(b => { if (b.start === null && !b.steps.length && !b.bad) errors.push(`${b.line}行目「${b.name}」: 時刻かタスクの行が必要です`); });
+  let routineNo = 0;
+  blocks.forEach(b => {
+    b.routine = b.steps.length > 0;
+    b.dur = b.routine ? b.steps.reduce((a, s) => a + s.sec, 0) / 60 : (b.end !== null ? b.end - b.start : 30);
+    if (b.start !== null) b.key = hm(b.start) + '|' + b.name;
+    if (b.routine) b.c = color(routineNo++);
+  });
+  const timed = blocks.filter(b => b.start !== null).sort((a, b) => a.start - b.start);
+  return { timed, anytime: blocks.filter(b => b.start === null), errors };
+}
+function sampleText() {
+  const n = Math.round(nowMin() / 5) * 5, t = d => hm(Math.min(29 * 60 + 55, Math.max(DAY_START_MIN, n + d)));
+  return `${t(-150)}-${t(-40)} 研究 ガイドワイヤーの確認
+
+${t(5)} 休憩の前の片付け
+机を片付ける 03:00 使わない資料は引き出しへ
+水を飲む 00:30 コップ1杯
+伸びをする 01:00 肩と背中
+
+${t(30)}-${t(90)} TAの採点
+
+${t(105)} 夜の支度
+食器を洗う 10:00
+明日の服を出す 02:00 天気を見てから
+シャワー 15:00
+
+${t(240)} 寝る準備
+歯を磨く 03:00 奥歯の裏側まで
+スマホを充電する 00:30 枕元に置かない
+
+部屋のリセット
+床の物を拾う 03:00
+ゴミをまとめる 02:00 明日が回収日か確認`;
+}
+
+/* State */
+function load() { try { const d = JSON.parse(localStorage.getItem(KEY)); if (d && typeof d.text === 'string') return d; } catch (e) {} return null; }
+let store = load() || { text: sampleText(), sample: true, day: dayKey(), status: {}, called: {}, run: null };
+function save() { try { localStorage.setItem(KEY, JSON.stringify(store)); } catch (e) {} }
+let day = parseDay(store.text), run = store.run || null, view = run ? 'run' : 'day', lastMinute = -1;
+
+/* Sound and screen */
+let audio = null, wake = null;
+function unlockAudio() { try { audio = audio || new (window.AudioContext || window.webkitAudioContext)(); audio.resume().then(() => { const h = $('soundHint'); if (h) h.remove(); }); } catch (e) {} }
+addEventListener('pointerdown', unlockAudio);
+function chime(notes = [[660, 0], [880, .13]]) {
+  if (navigator.vibrate) { try { navigator.vibrate(notes.length > 1 ? [120, 60, 120] : 90); } catch (e) {} }
+  if (!audio || audio.state !== 'running') return;
+  notes.forEach(([f, t]) => {
+    const o = audio.createOscillator(), g = audio.createGain(), at = audio.currentTime + t;
+    o.type = 'sine'; o.frequency.value = f;
+    g.gain.setValueAtTime(.0001, at); g.gain.exponentialRampToValueAtTime(.3, at + .02); g.gain.exponentialRampToValueAtTime(.0001, at + .3);
+    o.connect(g).connect(audio.destination); o.start(at); o.stop(at + .32);
+  });
+}
+async function holdWake() { try { if (!wake && navigator.wakeLock) { wake = await navigator.wakeLock.request('screen'); wake.addEventListener('release', () => { wake = null; }); } } catch (e) {} }
+
+/* Places every block on today's clock. Unstarted routines slide later; fixed events never move. */
+function schedule(now) {
+  let cursor = now; const items = [];
+  day.timed.forEach(b => {
+    const st = store.status[b.key];
+    if (run && run.key === b.key) {
+      const left = Math.max(leftNow(Date.now()), 0) + run.steps.slice(run.i + 1).reduce((a, s) => a + s.sec * 1000, 0);
+      const end = now + left / 60000;
+      items.push({ b, state: 'run', start: run.startedMin, end }); cursor = Math.max(cursor, end); return;
+    }
+    if (st && st.state === 'done') { items.push({ b, state: 'done', start: st.start, end: Math.max(st.end, st.start + .5) }); return; }
+    if (st && st.state === 'skip') { items.push({ b, state: 'skip', start: b.start, end: b.start }); return; }
+    if (!b.routine) { const end = b.start + b.dur; items.push({ b, state: end <= now ? 'past' : 'fixed', start: b.start, end }); if (end > now) cursor = Math.max(cursor, end); return; }
+    const start = Math.max(b.start, cursor), end = start + b.dur;
+    items.push({ b, state: 'wait', start, end, due: b.start <= now, moved: start - b.start >= 1 }); cursor = end;
+  });
+  items.forEach((it, i) => {
+    if (it.state !== 'wait') return;
+    const fixed = items.slice(i + 1).find(x => x.state === 'fixed');
+    if (fixed && it.end > fixed.start + .5) it.clash = { name: fixed.b.name, by: it.end - fixed.start };
+  });
+  return items.sort((a, b) => a.start - b.start);
+}
+function callDue(items, now) {
+  items.forEach(it => {
+    if (it.state !== 'wait' || !it.due || store.called[it.b.key]) return;
+    store.called[it.b.key] = 1; save();
+    if (!run && now - it.b.start < 2) chime();
+  });
+}
+function renderDay() {
+  if (store.day !== dayKey()) { store.day = dayKey(); store.status = {}; store.called = {}; save(); }
+  const now = nowMin(), items = schedule(now);
+  callDue(items, now);
+  const cur = items.find(x => x.state === 'fixed' && x.start <= now && now < x.end);
+  const next = items.find(x => x.state === 'wait');
+  const clockHTML = [...hm(Math.floor(now) % 1440)].map(c => `<i class="${c === ':' ? 'c' : ''}">${c}</i>`).join('');
+  $('now').innerHTML = `<div class="bar-top"><span class="brand">ツギ</span><button class="link" id="edit">予定を編集</button></div>
+    <div class="clock" aria-label="現在時刻">${clockHTML}</div>
+    ${store.sample ? '<p class="hint">表示中の予定は例です。「予定を編集」から差し替えられます。</p>' : ''}
+    ${cur ? `<div class="cur">${esc(cur.b.name)}<span>あと${span(cur.end - now)}</span></div>` : ''}
+    ${next ? `<div class="next" style="--c:${next.b.c}">
+      <h2>${esc(next.b.name)}</h2>
+      <p>${next.due ? '時間です' : `${hm(next.start)}から、あと${span(next.start - now)}`}、所要${secs(Math.round(next.b.dur * 60))}</p>
+      ${next.clash ? `<p style="grid-column:1/-1"><span class="badge">${esc(next.clash.name)}に${span(next.clash.by)}食い込む</span></p>` : ''}
+      <button class="go" data-start="${esc(next.b.key)}" aria-label="${esc(next.b.name)}を始める">${ICON.play}</button>
+    </div>` : `<p class="nothing">${items.some(x => x.state === 'fixed') ? 'この後のルーティンはありません' : '今日の予定はもうありません'}</p>`}
+    ${audio && audio.state === 'running' ? '' : '<p class="hint" id="soundHint">画面を一度タップすると、時間のチャイムが鳴るようになります。</p>'}`;
+  $('edit').onclick = openEditor;
+  document.querySelectorAll('#now [data-start]').forEach(b => b.onclick = () => startRun(b.dataset.start));
+
+  const parts = []; let prevEnd = items.length ? Math.min(items[0].start, now) : now;
+  items.forEach(it => {
+    const gap = it.start - prevEnd;
+    if (gap >= 5) parts.push(`<div class="free" data-a="${prevEnd}" data-b="${it.start}" style="flex:${Math.min(gap, 120)} 0 ${gap >= 30 ? 26 : 8}px">${gap >= 30 ? `空き ${span(gap)}` : ''}</div>`);
+    const b = it.b, tasks = b.routine ? `${b.steps.length}個、${secs(Math.round(b.dur * 60))}` : '';
+    const cls = ['blk', b.routine ? '' : 'plain', it.state === 'done' ? 'finished' : '', it.state === 'skip' ? 'skip' : '', it.state === 'past' ? 'past' : '', it.state === 'run' ? 'run-now' : '', it.due ? 'due' : ''].join(' ');
+    const body = `<span class="row"><span class="t">${hm(it.start)}</span><span class="n">${esc(b.name)}</span></span>
+      ${it.state === 'done' ? `<span class="m">完了</span>` : it.state === 'skip' ? '<span class="m">今日はやらない</span>' : tasks ? `<span class="m">${tasks}${it.moved ? `、${hm(b.start)}から移動` : ''}</span>` : ''}
+      ${it.clash ? `<span><span class="badge">${esc(it.clash.name)}に${span(it.clash.by)}食い込む</span></span>` : ''}`;
+    const style = `flex:${Math.max(it.end - it.start, 1)} 0 ${it.clash || (tasks && it.state === 'wait') ? 64 : 42}px;--c:${b.c || 'transparent'}`;
+    parts.push(b.routine
+      ? `<button class="${cls}" style="${style}" data-a="${it.start}" data-b="${it.end}" data-key="${esc(b.key)}">${body}</button>`
+      : `<div class="${cls}" style="${style}" data-a="${it.start}" data-b="${it.end}">${body}</div>`);
+    prevEnd = Math.max(prevEnd, it.end);
+  });
+  const map = $('map');
+  if (innerWidth < 900 || innerHeight > innerWidth) map.style.height = Math.max(items.length * 74, 900) + 'px'; else map.style.height = '';
+  map.innerHTML = parts.join('') + `<div class="line" id="line"><b>${hm(Math.floor(now) % 1440)}</b></div>`;
+  map.querySelectorAll('[data-key]').forEach(el => el.onclick = () => openBlock(el.dataset.key));
+  placeLine(now);
+  $('any').innerHTML = day.anytime.filter(b => b.routine).length ? `<h3>いつでも</h3>` + day.anytime.filter(b => b.routine).map((b, i) => `<button data-any="${i}"><span>${esc(b.name)}</span><span>${secs(Math.round(b.dur * 60))}</span></button>`).join('') : '';
+  $('any').querySelectorAll('[data-any]').forEach(el => el.onclick = () => startAny(day.anytime.filter(b => b.routine)[+el.dataset.any]));
+}
+function placeLine(now) {
+  const map = $('map'), line = $('line'); if (!line) return;
+  const els = [...map.querySelectorAll('[data-a]')];
+  let y = els.length && now < +els[0].dataset.a ? 0 : map.scrollHeight;
+  for (const el of els) {
+    const a = +el.dataset.a, b = +el.dataset.b;
+    if (now >= a && now < b) { y = el.offsetTop + (now - a) / (b - a) * el.offsetHeight; break; }
+    if (now < a) { y = el.offsetTop; break; }
+  }
+  line.style.top = y + 'px';
+}
+function closeSheet() { const s = $('scrim'); if (s) s.remove(); }
+function sheet(html) {
+  closeSheet();
+  const el = document.createElement('div'); el.className = 'scrim'; el.id = 'scrim'; el.innerHTML = `<div class="sheet" role="dialog" aria-modal="true">${html}</div>`;
+  el.addEventListener('click', e => { if (e.target === el) el.remove(); });
+  document.body.appendChild(el); return el;
+}
+function openBlock(key) {
+  const b = day.timed.find(x => x.key === key), st = store.status[key];
+  if (!b || (run && run.key === key)) return;
+  if (st) {
+    const el = sheet(`<h2>${esc(b.name)}</h2><p>${st.state === 'done' ? '完了しています。' : '今日はやらないことにしています。'}</p><button class="btn" id="undo">未実行に戻す</button><button class="btn quiet" id="x">閉じる</button>`);
+    el.querySelector('#undo').onclick = () => { delete store.status[key]; save(); closeSheet(); renderDay(); };
+    el.querySelector('#x').onclick = closeSheet; return;
+  }
+  const el = sheet(`<h2>${esc(b.name)}</h2><p>${b.steps.length}個のタスク、${secs(Math.round(b.dur * 60))}</p><button class="btn" id="st" ${run ? 'disabled' : ''}>始める</button><button class="btn quiet" id="sk">今日はやらない</button>`);
+  el.querySelector('#st').onclick = () => { closeSheet(); startRun(key); };
+  el.querySelector('#sk').onclick = () => { store.status[key] = { state: 'skip' }; save(); closeSheet(); renderDay(); };
+}
+
+/* Editor */
+function openEditor() {
+  const el = document.createElement('div'); el.className = 'editor'; el.id = 'editor';
+  el.innerHTML = `<div class="inner gutter">
+    <div class="bar-top" style="position:static"><button class="link" id="back">戻る</button></div>
+    <h1>今日の予定</h1>
+    <p class="help">空行でブロックを区切ります。タスクの行がなければ動かない予定、あればルーティンになります。時刻のないルーティンは「いつでも」に入ります。</p>
+    <div class="format">07:00 朝の支度
+水を飲む 01:00 コップ1杯
+歯を磨く 03:00 奥歯の裏側まで
+
+09:00-12:00 研究</div>
+    <textarea id="text" aria-label="今日の予定のテキスト">${esc(store.text)}</textarea>
+    <ul class="errors" id="errs"></ul>
+    <button class="btn" id="apply">地図に反映</button></div>`;
+  document.body.appendChild(el);
+  const ta = $('text'), check = () => { const p = parseDay(ta.value); $('errs').innerHTML = p.errors.map(e => `<li>${esc(e)}</li>`).join(''); $('apply').disabled = p.errors.length > 0 || !ta.value.trim(); };
+  ta.oninput = check; check();
+  $('back').onclick = () => el.remove();
+  $('apply').onclick = () => {
+    store.text = ta.value; delete store.sample; day = parseDay(store.text); save(); el.remove(); renderDay();
+  };
+}
+
+/* Timer */
+let tickId = null, shownTime = '', jumpTimer = null;
+const ms = i => run.steps[i].sec * 1000;
+const leftNow = now => run.endAt != null ? run.endAt - now : run.left;
+function beginRun(b, key) {
+  unlockAudio();
+  const steps = b.steps.map(s => ({ ...s }));
+  run = { key, name: b.name, c0: b.c ? PAL.indexOf(b.c) : 0, steps, i: 0, auto: true, endAt: Date.now() + steps[0].sec * 1000, left: 0, spent: steps.map(() => 0), warned: false, startedMin: nowMin() };
+  store.run = run; save(); showRun(); chime(); renderDay();
+}
+function startRun(key) { const b = day.timed.find(x => x.key === key); if (b && b.routine && !run) beginRun(b, key); }
+function startAny(b) { if (b && !run) beginRun(b, null); }
+function layerHTML(inert) {
+  return `<header class="r-top"><button class="icon" data-act="close" aria-label="ルーティンをやめる">${ICON.close}</button>
+    <div class="r-title"><span data-s="routine"></span><span class="r-pos" data-s="pos"></span></div><span></span></header>
+    <main class="r-main"><div class="r-gap"></div><h1 class="r-step" data-s="step"></h1>
+      <div class="digits" data-s="time" ${inert ? '' : 'role="timer"'}></div>
+      <button class="plus" data-act="plus">+1分</button><p class="r-note" data-s="note"></p></main>
+    <p class="r-next" data-s="next"></p>
+    <footer class="r-ctl"><button class="ctl" data-act="prev">${ICON.prev}<span>戻る</span></button>
+      <button class="main-ctl" data-act="toggle" data-s="toggle"></button>
+      <button class="ctl" data-act="next">${ICON.next}<span data-s="nextLabel">次へ</span></button></footer>`;
+}
+function showRun() {
+  view = 'run'; shownTime = '';
+  overlay.innerHTML = `<div class="run" id="run"><div class="layer">${layerHTML(false)}</div><div class="layer level" id="level" inert aria-hidden="true">${layerHTML(true)}</div></div>`;
+  $('run').addEventListener('click', e => {
+    const b = e.target.closest('[data-act]'); if (!b) return;
+    ({ close: openStop, plus: addMinute, prev: goPrev, next: goNext, toggle: togglePause })[b.dataset.act]();
+  });
+  paintStep(); runTick();
+}
+function slot(name, html) { overlay.querySelectorAll(`[data-s="${name}"]`).forEach(el => { el.innerHTML = html; }); }
+function jump() { const el = $('run'); if (!el) return; el.classList.add('jump'); clearTimeout(jumpTimer); jumpTimer = setTimeout(() => el.classList.remove('jump'), 650); }
+function paintStep() {
+  if (!$('run')) return;
+  const s = run.steps[run.i], nx = run.steps[run.i + 1];
+  slot('routine', esc(run.name)); slot('pos', `${run.i + 1}/${run.steps.length}`); slot('step', esc(s.name));
+  $('level').style.setProperty('--c', color((run.c0 || 0) + run.i));
+  slot('nextLabel', nx ? '次へ' : '完了'); slot('note', esc(s.note || ''));
+  $('run').classList.toggle('no-note', !s.note);
+  fitNote(); paintPause();
+}
+function fitNote() {
+  const notes = [...overlay.querySelectorAll('[data-s="note"]')];
+  if (!notes.length || !run) return;
+  const base = notes[0], sizes = [20, 18, 16, 15, 14, 13, 12];
+  notes.forEach(n => { n.classList.remove('clamp'); n.style.webkitLineClamp = ''; n.style.maxHeight = ''; });
+  let chosen = 12, fits = false;
+  for (const px of sizes) { base.style.fontSize = px + 'px'; if (base.scrollHeight <= base.clientHeight + 1) { chosen = px; fits = true; break; } }
+  const lines = Math.max(1, Math.floor(base.clientHeight / (chosen * 1.55)));
+  notes.forEach(n => { n.style.fontSize = chosen + 'px'; if (!fits) { n.classList.add('clamp'); n.style.webkitLineClamp = lines; n.style.maxHeight = lines * chosen * 1.55 + 'px'; } });
+}
+addEventListener('resize', () => { fitNote(); lastMinute = -1; });
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitNote);
+function paintPause() {
+  const paused = run.endAt == null;
+  $('run').classList.toggle('paused', paused);
+  slot('toggle', paused ? ICON.play.replace(/34/g, '40') : ICON.pause);
+  overlay.querySelectorAll('[data-act="toggle"]').forEach(b => b.setAttribute('aria-label', paused ? '再開' : '一時停止'));
+}
+function paintTime(t) {
+  const left = leftNow(t), s = run.steps[run.i];
+  const shown = left >= 0 ? fmt(Math.ceil(left / 1000)) : '+' + fmt(Math.floor(-left / 1000));
+  if (shown !== shownTime) { shownTime = shown; slot('time', [...shown].map(c => `<i class="${c === ':' ? 'c' : c === '+' ? 's' : ''}">${c}</i>`).join('')); }
+  $('level').style.setProperty('--r', Math.max(0, Math.min(1, left / (s.sec * 1000))).toFixed(4));
+  const nx = run.steps[run.i + 1], rest = run.steps.slice(run.i + 1).reduce((a, x) => a + x.sec, 0) * 1000;
+  slot('next', (nx ? `次は <b>${esc(nx.name)}</b> ${fmt(nx.sec)}` : '最後のタスク') + `<br>${run.endAt == null ? '一時停止中' : hm(nowMin() + (Math.max(left, 0) + rest) / 60000) + 'に終わる予定'}`);
+}
+function step(to, at, quiet) {
+  const running = run.endAt != null;
+  run.i = to; run.warned = false;
+  if (running) run.endAt = at + ms(to); else run.left = ms(to);
+  if (!quiet) { save(); jump(); paintStep(); shownTime = ''; paintTime(Date.now()); }
+}
+function closeOut(left) { run.spent[run.i] = ms(run.i) - left; if (run.i + 1 >= run.steps.length) { finish(); return true; } return false; }
+function runTick() {
+  if (!run || !$('run')) return;
+  const t = Date.now();
+  if (run.endAt != null && t >= run.endAt) {
+    while (run.endAt != null && t >= run.endAt) { const ended = run.endAt; if (closeOut(0)) return; step(run.i + 1, ended, true); }
+    save(); jump(); paintStep(); shownTime = ''; chime();
+  }
+  if (run.endAt != null) {
+    const left = run.endAt - t;
+    if (!run.warned && run.steps[run.i].sec >= 180 && left <= 60000 && left > 55000) { run.warned = true; chime([[660, 0]]); save(); }
+  }
+  paintTime(t);
+}
+function goNext() { const t = Date.now(); if (closeOut(leftNow(t))) return; step(run.i + 1, t); chime(); lastMinute = -1; }
+function goPrev() { run.spent[run.i] = 0; const to = Math.max(run.i - 1, 0); run.spent[to] = 0; step(to, Date.now()); lastMinute = -1; }
+function togglePause() { const t = Date.now(); if (run.endAt != null) { run.left = run.endAt - t; run.endAt = null; } else { run.endAt = t + run.left; run.left = 0; } save(); paintPause(); runTick(); }
+function addMinute() { run.steps[run.i].sec += 60; if (run.endAt != null) run.endAt += 60000; else run.left += 60000; if (leftNow(Date.now()) > 60000) run.warned = false; save(); shownTime = ''; runTick(); lastMinute = -1; }
+function openStop() {
+  const el = sheet(`<h2>このルーティンをやめますか</h2><p>未実行に戻り、地図の上で今の時刻に移動します。</p><button class="btn" id="keep">続ける</button><button class="btn quiet" id="quit" style="color:var(--warn)">やめる</button>`);
+  el.querySelector('#keep').onclick = closeSheet;
+  el.querySelector('#quit').onclick = () => { closeSheet(); run = null; store.run = null; save(); overlay.innerHTML = ''; view = 'day'; renderDay(); };
+}
+function finish() {
+  const r = run, spent = r.spent.reduce((a, b) => a + b, 0), planned = r.steps.reduce((a, s) => a + s.sec, 0);
+  if (r.key) store.status[r.key] = { state: 'done', start: r.startedMin, end: nowMin() };
+  run = null; store.run = null; save(); view = 'done';
+  overlay.innerHTML = `<div class="done"><div class="stripes">${r.steps.map((s, i) => `<div class="stripe" style="flex:${s.sec} 1 auto;--c:${color((r.c0 || 0) + i)};--n:${i}"><span>${esc(s.name)}</span><span>${fmt(s.sec)}</span></div>`).join('')}</div>
+    <div class="done-foot"><h1>${esc(r.name)}、完了</h1><p>かかった時間 ${fmt(Math.round(spent / 1000))}（予定 ${fmt(planned)}）</p><button class="btn" id="home">地図に戻る</button></div></div>`;
+  $('home').onclick = () => { overlay.innerHTML = ''; view = 'day'; renderDay(); };
+  chime(); renderDay();
+}
+
+setInterval(() => {
+  if (run) runTick();
+  const m = Math.floor(nowMin());
+  if (m !== lastMinute) { lastMinute = m; renderDay(); }
+}, 200);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { holdWake(); lastMinute = -1; } });
+holdWake();
+if (run) showRun();
+renderDay();
+lastMinute = Math.floor(nowMin());
+})();
+</script>
