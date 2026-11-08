@@ -40,6 +40,17 @@ svg{display:block;fill:currentColor}
 .blk .t{font:600 15px var(--num);flex:none}
 .blk .n{font-weight:700;font-size:16px;line-height:1.3;overflow-wrap:anywhere;min-width:0}
 .blk .m{font-size:13px;font-weight:700}
+.tasks{display:block;margin-top:5px;font-size:13px;font-weight:700;line-height:20px}
+.tasks>span{display:flex;justify-content:space-between;gap:10px}
+.tasks b{font-weight:700;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.tasks i{font:600 13px var(--num);flex:none}
+.tasks .was{opacity:.45}
+.tasks .cur b{text-decoration:underline;text-underline-offset:3px}
+.sheet-tasks{display:grid;gap:8px;max-height:48vh;overflow-y:auto;margin-bottom:6px}
+.sheet-tasks>div{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:0 12px}
+.sheet-tasks b{font-weight:700;overflow-wrap:anywhere}
+.sheet-tasks i{font:600 16px var(--num)}
+.sheet-tasks small{grid-column:1/-1;color:var(--muted);font-size:13px;line-height:1.5;overflow-wrap:anywhere}
 .blk.plain{background:var(--raised);color:var(--fg)}
 .blk.finished{background:none;color:var(--muted);box-shadow:inset 0 0 0 1px var(--line)}
 .blk.skip{background:none;color:var(--muted);box-shadow:inset 0 0 0 1px var(--line)}
@@ -422,23 +433,28 @@ function renderDay() {
   paintSync();
   document.querySelectorAll('#now [data-start]').forEach(b => b.onclick = () => startRun(b.dataset.start));
 
-  const parts = []; let prevEnd = items.length ? (live ? Math.min(items[0].start, now) : items[0].start) : now;
+  const parts = []; let mapH = 0, prevEnd = items.length ? (live ? Math.min(items[0].start, now) : items[0].start) : now;
   items.forEach(it => {
     const gap = it.start - prevEnd;
     if (gap >= 5) parts.push(`<div class="free" data-a="${prevEnd}" data-b="${it.start}" style="flex:${Math.min(gap, 120)} 0 ${gap >= 30 ? 26 : 8}px">${gap >= 30 ? `空き ${span(gap)}` : ''}</div>`);
+    if (gap >= 5) mapH += (gap >= 30 ? 26 : 8) + 3;
     const b = it.b, tasks = b.routine ? `${b.steps.length}個、${secs(Math.round(b.dur * 60))}` : '';
     const cls = ['blk', b.routine ? '' : 'plain', it.state === 'done' ? 'finished' : '', it.state === 'skip' ? 'skip' : '', it.state === 'past' ? 'past' : '', it.state === 'run' ? 'run-now' : '', it.due ? 'due' : ''].join(' ');
+    const showTasks = b.routine && ['wait', 'plan', 'run'].includes(it.state);
+    const rows = showTasks ? `<span class="tasks">${b.steps.map((s, i) => `<span class="${it.state === 'run' ? (i < run.i ? 'was' : i === run.i ? 'cur' : '') : ''}"><b>${esc(s.name)}</b><i>${fmt(s.sec)}</i></span>`).join('')}</span>` : '';
     const body = `<span class="row"><span class="t">${hm(it.start)}</span><span class="n">${esc(b.name)}</span></span>
       ${it.state === 'done' ? `<span class="m">完了</span>` : it.state === 'skip' ? '<span class="m">今日はやらない</span>' : tasks ? `<span class="m">${tasks}${it.moved ? `、${hm(b.start)}から移動` : ''}</span>` : ''}
-      ${it.clash ? `<span><span class="badge">${esc(it.clash.name)}に${span(it.clash.by)}食い込む</span></span>` : ''}`;
-    const style = `flex:${Math.max(it.end - it.start, 1)} 0 ${it.clash || (tasks && it.state === 'wait') ? 64 : 42}px;--c:${b.c || 'transparent'}`;
-    parts.push(b.routine && live
+      ${it.clash ? `<span><span class="badge">${esc(it.clash.name)}に${span(it.clash.by)}食い込む</span></span>` : ''}${rows}`;
+    const basis = showTasks ? 60 + b.steps.length * 20 + (it.clash ? 26 : 0) : 42;
+    mapH += basis + 3;
+    const style = `flex:${Math.max(it.end - it.start, 1)} 0 ${basis}px;--c:${b.c || 'transparent'}`;
+    parts.push(b.routine
       ? `<button class="${cls}" style="${style}" data-a="${it.start}" data-b="${it.end}" data-key="${esc(b.key)}">${body}</button>`
       : `<div class="${cls}" style="${style}" data-a="${it.start}" data-b="${it.end}">${body}</div>`);
     prevEnd = Math.max(prevEnd, it.end);
   });
   const map = $('map');
-  map.style.height = items.length && (innerWidth < 900 || innerHeight > innerWidth) ? Math.max(items.length * 74, 900) + 'px' : '';
+  map.style.height = items.length && (innerWidth < 900 || innerHeight > innerWidth) ? Math.max(mapH + 120, 900) + 'px' : '';
   map.innerHTML = parts.join('') + (live ? `<div class="line" id="line"><b>${hm(Math.floor(now) % 1440)}</b></div>` : '');
   map.querySelectorAll('[data-key]').forEach(el => el.onclick = () => openBlock(el.dataset.key));
   if (live) placeLine(now);
@@ -464,15 +480,20 @@ function sheet(html) {
   el.addEventListener('click', e => { if (e.target === el) el.remove(); });
   document.body.appendChild(el); return el;
 }
+const taskList = b => `<div class="sheet-tasks">${b.steps.map(s => `<div><b>${esc(s.name)}</b><i>${fmt(s.sec)}</i>${s.note ? `<small>${esc(s.note)}</small>` : ''}</div>`).join('')}</div>`;
 function openBlock(key) {
-  const b = day.timed.find(x => x.key === key), st = store.status[key];
-  if (!b || (run && run.key === key)) return;
+  const b = day.timed.find(x => x.key === key), st = offset ? null : store.status[key];
+  if (!b) return;
+  if (offset || (run && run.key === key)) {
+    const el = sheet(`<h2>${esc(b.name)}</h2><p>${b.steps.length}個のタスク、${secs(Math.round(b.dur * 60))}</p>${taskList(b)}<button class="btn quiet" id="x">閉じる</button>`);
+    el.querySelector('#x').onclick = closeSheet; return;
+  }
   if (st) {
-    const el = sheet(`<h2>${esc(b.name)}</h2><p>${st.state === 'done' ? '完了しています。' : '今日はやらないことにしています。'}</p><button class="btn" id="undo">未実行に戻す</button><button class="btn quiet" id="x">閉じる</button>`);
+    const el = sheet(`<h2>${esc(b.name)}</h2><p>${st.state === 'done' ? '完了しています。' : '今日はやらないことにしています。'}</p>${taskList(b)}<button class="btn" id="undo">未実行に戻す</button><button class="btn quiet" id="x">閉じる</button>`);
     el.querySelector('#undo').onclick = () => { delete store.status[key]; save(); closeSheet(); renderDay(); };
     el.querySelector('#x').onclick = closeSheet; return;
   }
-  const el = sheet(`<h2>${esc(b.name)}</h2><p>${b.steps.length}個のタスク、${secs(Math.round(b.dur * 60))}</p><button class="btn" id="st" ${run ? 'disabled' : ''}>始める</button><button class="btn quiet" id="sk">今日はやらない</button>`);
+  const el = sheet(`<h2>${esc(b.name)}</h2><p>${b.steps.length}個のタスク、${secs(Math.round(b.dur * 60))}</p>${taskList(b)}<button class="btn" id="st" ${run ? 'disabled' : ''}>始める</button><button class="btn quiet" id="sk">今日はやらない</button>`);
   el.querySelector('#st').onclick = () => { closeSheet(); startRun(key); };
   el.querySelector('#sk').onclick = () => { store.status[key] = { state: 'skip' }; save(); closeSheet(); renderDay(); };
 }
