@@ -65,6 +65,11 @@ svg{display:block;fill:currentColor}
 #text{width:100%;min-height:300px;background:var(--field);border:0;border-radius:14px;padding:14px;outline:0;resize:vertical;line-height:1.6}
 #text:focus{box-shadow:0 0 0 2px var(--fg)}
 .errors{margin:12px 0 0;padding:0;list-style:none;color:var(--warn);font-size:14px;display:grid;gap:4px;overflow-wrap:anywhere}
+.sec{font-size:20px;font-weight:900;margin:34px 0 6px;line-height:1.3}
+#token{width:100%;height:48px;background:var(--field);border:0;border-radius:12px;padding:0 14px;outline:0;margin-bottom:10px}
+#token:focus{box-shadow:0 0 0 2px var(--fg)}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.bad{color:var(--warn)}
 .btn{display:block;width:100%;text-align:center;height:56px;border-radius:16px;background:var(--fg);color:#000;font-weight:700;font-size:17px;margin-top:14px}
 .btn:disabled{background:var(--field);color:var(--muted);cursor:default}
 .btn.quiet{background:var(--field);color:var(--fg);margin-top:0}
@@ -251,6 +256,46 @@ let store = load() || { text: sampleText(), sample: true, day: dayKey(), status:
 function save() { try { localStorage.setItem(KEY, JSON.stringify(store)); } catch (e) {} }
 let day = parseDay(store.text), run = store.run || null, view = run ? 'run' : 'day', lastMinute = -1;
 
+/* Plans written by an AI arrive as today.txt in a private repository. The key stays on this device. */
+const REPO = 'naoki-research1213/tsugi-data', TOKEN_KEY = 'tsugi.map.token';
+const getToken = () => { try { return localStorage.getItem(TOKEN_KEY) || ''; } catch (e) { return ''; } };
+let sync = { kind: getToken() ? 'wait' : 'off', msg: '' }, pending = null, syncing = false, lastSync = 0;
+function syncText() {
+  if (sync.kind === 'off' || sync.kind === 'wait') return '';
+  if (sync.kind === 'empty') return 'AIの予定はまだありません。';
+  if (sync.kind === 'pending') return 'AIの新しい予定は、このルーティンが終わると反映されます。';
+  if (sync.kind === 'ok') return store.remoteAt && store.text === store.remoteText ? `AIの予定を表示中（${new Date(store.remoteAt).getHours()}:${String(new Date(store.remoteAt).getMinutes()).padStart(2, '0')}に更新）` : '';
+  return sync.msg;
+}
+function paintSync() {
+  const bad = sync.kind === 'error';
+  ['syncLine', 'syncStatus'].forEach(id => { const el = $(id); if (!el) return; el.textContent = syncText() || (id === 'syncStatus' && sync.kind === 'ok' ? '接続できています。' : ''); el.classList.toggle('bad', bad); });
+}
+function applyRemote(text) { store.text = text; store.remoteText = text; store.remoteAt = Date.now(); delete store.sample; day = parseDay(text); save(); lastMinute = -1; }
+function applyPending() { if (pending) { const t = pending; pending = null; sync = { kind: 'ok', msg: '' }; applyRemote(t); } }
+async function syncNow() {
+  const token = getToken();
+  if (!token) { sync = { kind: 'off', msg: '' }; paintSync(); return; }
+  if (syncing) return;
+  syncing = true; lastSync = Date.now();
+  try {
+    const r = await fetch(`https://api.github.com/repos/${REPO}/contents/today.txt`, { cache: 'no-cache', headers: { Accept: 'application/vnd.github.raw+json', Authorization: `Bearer ${token}`, 'X-GitHub-Api-Version': '2022-11-28' } });
+    if (!r.ok) {
+      const msg = r.status === 401 ? 'GitHubのトークンが無効です。「予定を編集」から貼り直してください。' : r.status === 404 ? 'today.txtを読めません。トークンの対象がtsugi-dataになっているか確認してください。' : r.status === 403 ? 'GitHubに読み取りを断られました。トークンのContents権限を確認してください。' : `AIの予定を取得できません（${r.status}）。`;
+      sync = { kind: 'error', msg }; return;
+    }
+    const text = (await r.text()).trim();
+    if (!text) { sync = { kind: 'empty', msg: '' }; return; }
+    if (text === store.remoteText) { if (!run || !pending) sync = { kind: 'ok', msg: '' }; return; }
+    const parsed = parseDay(text);
+    if (parsed.errors.length) { pending = null; sync = { kind: 'error', msg: `AIの予定に読めない行があるため、前の予定を表示しています。${parsed.errors[0]}` }; return; }
+    if (run) { pending = text; sync = { kind: 'pending', msg: '' }; return; }
+    sync = { kind: 'ok', msg: '' }; applyRemote(text);
+  } catch (e) {
+    sync = { kind: 'error', msg: 'AIの予定を確認できません。通信を確認してください。' };
+  } finally { syncing = false; paintSync(); }
+}
+
 /* Sound and screen */
 let audio = null, wake = null;
 function unlockAudio() { try { audio = audio || new (window.AudioContext || window.webkitAudioContext)(); audio.resume().then(() => { const h = $('soundHint'); if (h) h.remove(); }); } catch (e) {} }
@@ -314,8 +359,10 @@ function renderDay() {
       ${next.clash ? `<p style="grid-column:1/-1"><span class="badge">${esc(next.clash.name)}に${span(next.clash.by)}食い込む</span></p>` : ''}
       <button class="go" data-start="${esc(next.b.key)}" aria-label="${esc(next.b.name)}を始める">${ICON.play}</button>
     </div>` : `<p class="nothing">${items.some(x => x.state === 'fixed') ? 'この後のルーティンはありません' : '今日の予定はもうありません'}</p>`}
+    <p class="hint" id="syncLine"></p>
     ${audio && audio.state === 'running' ? '' : '<p class="hint" id="soundHint">画面を一度タップすると、時間のチャイムが鳴るようになります。</p>'}`;
   $('edit').onclick = openEditor;
+  paintSync();
   document.querySelectorAll('#now [data-start]').forEach(b => b.onclick = () => startRun(b.dataset.start));
 
   const parts = []; let prevEnd = items.length ? Math.min(items[0].start, now) : now;
@@ -386,10 +433,28 @@ function openEditor() {
 09:00-12:00 研究</div>
     <textarea id="text" aria-label="今日の予定のテキスト">${esc(store.text)}</textarea>
     <ul class="errors" id="errs"></ul>
-    <button class="btn" id="apply">地図に反映</button></div>`;
+    <button class="btn" id="apply">地図に反映</button>
+    <h2 class="sec">AIから登録</h2>
+    <p class="help">AIがtsugi-dataのtoday.txtを更新すると、1分以内に地図へ反映されます。ここで手で編集した内容は、次にAIが更新すると置き換わります。</p>
+    <input id="token" type="password" autocomplete="off" aria-label="GitHubの読み取り用トークン" placeholder="${getToken() ? '登録済み。変更するときだけ入力' : 'GitHubの読み取り用トークン'}">
+    <div class="pair"><button class="btn quiet" id="tokDel" ${getToken() ? '' : 'disabled'}>トークンを削除</button><button class="btn quiet" id="tokSave">保存して確認</button></div>
+    <p class="help" id="syncStatus" style="margin-top:10px"></p></div>`;
   document.body.appendChild(el);
   const ta = $('text'), check = () => { const p = parseDay(ta.value); $('errs').innerHTML = p.errors.map(e => `<li>${esc(e)}</li>`).join(''); $('apply').disabled = p.errors.length > 0 || !ta.value.trim(); };
   ta.oninput = check; check();
+  paintSync();
+  $('tokSave').onclick = async () => {
+    const v = $('token').value.trim();
+    if (v) { try { localStorage.setItem(TOKEN_KEY, v); } catch (e) {} $('token').value = ''; $('token').placeholder = '登録済み。変更するときだけ入力'; $('tokDel').disabled = false; }
+    if (!getToken()) return;
+    $('syncStatus').textContent = '確認しています'; $('syncStatus').classList.remove('bad');
+    await syncNow(); renderDay(); paintSync();
+  };
+  $('tokDel').onclick = () => {
+    try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
+    $('tokDel').disabled = true; $('token').placeholder = 'GitHubの読み取り用トークン';
+    sync = { kind: 'off', msg: '' }; paintSync(); $('syncStatus').textContent = 'トークンを削除しました。'; renderDay();
+  };
   $('back').onclick = () => el.remove();
   $('apply').onclick = () => {
     store.text = ta.value; delete store.sample; day = parseDay(store.text); save(); el.remove(); renderDay();
@@ -492,12 +557,12 @@ function addMinute() { run.steps[run.i].sec += 60; if (run.endAt != null) run.en
 function openStop() {
   const el = sheet(`<h2>このルーティンをやめますか</h2><p>未実行に戻り、地図の上で今の時刻に移動します。</p><button class="btn" id="keep">続ける</button><button class="btn quiet" id="quit" style="color:var(--warn)">やめる</button>`);
   el.querySelector('#keep').onclick = closeSheet;
-  el.querySelector('#quit').onclick = () => { closeSheet(); run = null; store.run = null; save(); overlay.innerHTML = ''; view = 'day'; renderDay(); };
+  el.querySelector('#quit').onclick = () => { closeSheet(); run = null; store.run = null; save(); overlay.innerHTML = ''; view = 'day'; applyPending(); renderDay(); };
 }
 function finish() {
   const r = run, spent = r.spent.reduce((a, b) => a + b, 0), planned = r.steps.reduce((a, s) => a + s.sec, 0);
   if (r.key) store.status[r.key] = { state: 'done', start: r.startedMin, end: nowMin() };
-  run = null; store.run = null; save(); view = 'done';
+  run = null; store.run = null; save(); view = 'done'; applyPending();
   overlay.innerHTML = `<div class="done"><div class="stripes">${r.steps.map((s, i) => `<div class="stripe" style="flex:${s.sec} 1 auto;--c:${color((r.c0 || 0) + i)};--n:${i}"><span>${esc(s.name)}</span><span>${fmt(s.sec)}</span></div>`).join('')}</div>
     <div class="done-foot"><h1>${esc(r.name)}、完了</h1><p>かかった時間 ${fmt(Math.round(spent / 1000))}（予定 ${fmt(planned)}）</p><button class="btn" id="home">地図に戻る</button></div></div>`;
   $('home').onclick = () => { overlay.innerHTML = ''; view = 'day'; renderDay(); };
@@ -508,11 +573,13 @@ setInterval(() => {
   if (run) runTick();
   const m = Math.floor(nowMin());
   if (m !== lastMinute) { lastMinute = m; renderDay(); }
+  if (document.visibilityState === 'visible' && Date.now() - lastSync >= 60000) syncNow();
 }, 200);
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { holdWake(); lastMinute = -1; } });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { holdWake(); lastMinute = -1; syncNow(); } });
 holdWake();
 if (run) showRun();
 renderDay();
 lastMinute = Math.floor(nowMin());
+syncNow();
 })();
 </script>
