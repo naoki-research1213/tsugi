@@ -1,3 +1,8 @@
 fonts/digits.woff2
 preview.html
 __pycache__/
+dist/
+outputs/
+.sites-runtime/
+.wrangler/
+.env*

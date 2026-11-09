@@ -286,7 +286,13 @@ function load() {
   } catch (e) { return null; }
 }
 let store = load() || { days: { [dayKey()]: { text: sampleText(), sample: true } }, day: dayKey(), status: {}, called: {}, run: null };
-function save() { try { localStorage.setItem(KEY, JSON.stringify(store)); } catch (e) {} }
+let applyingCloud = false, cloudWrites = false, ownsTimer = false;
+function save() {
+  try { localStorage.setItem(KEY, JSON.stringify(store)); } catch (e) {}
+  if (window.TsugiCloud && cloudWrites && !applyingCloud) {
+    if (ownsTimer) TsugiCloud.set('timer:map', store.run);
+  }
+}
 save();
 const data = key => store.days[key] || (store.days[key] = { text: '' });
 let offset = 0;
@@ -295,7 +301,7 @@ let day = parseDay(data(viewKey()).text), run = store.run || null, view = run ? 
 
 /* Plans written by an AI arrive as days/YYYY-MM-DD.txt in a private repository. The key stays on this device. */
 const REPO = 'naoki-research1213/tsugi-data', TOKEN_KEY = 'tsugi.map.token', API = `https://api.github.com/repos/${REPO}`;
-const getToken = () => { try { return localStorage.getItem(TOKEN_KEY) || ''; } catch (e) { return ''; } };
+const getToken = () => { if (window.TsugiCloud) return ''; try { return localStorage.getItem(TOKEN_KEY) || ''; } catch (e) { return ''; } };
 let sync = { kind: getToken() ? 'wait' : 'off', msg: '' }, pending = null, syncing = false, lastSync = 0, repoOK = '';
 const ghHeaders = (token, raw) => ({ Accept: raw ? 'application/vnd.github.raw+json' : 'application/vnd.github+json', Authorization: `Bearer ${token}`, 'X-GitHub-Api-Version': '2022-11-28' });
 function syncText() {
@@ -336,6 +342,7 @@ async function pull(key, token) {
   return { kind: 'ok', msg: '' };
 }
 async function syncNow() {
+  if (window.TsugiCloud) { TsugiCloud.watch([0,1,2].map(i => 'day:' + keyAt(i)).concat(['timer:map', 'status:' + dayKey()]), cloudUpdate); return; }
   const token = getToken();
   if (!token) { sync = { kind: 'off', msg: '' }; paintSync(); return; }
   if (syncing) return;
@@ -490,16 +497,17 @@ function openBlock(key) {
   }
   if (st) {
     const el = sheet(`<h2>${esc(b.name)}</h2><p>${st.state === 'done' ? '完了しています。' : '今日はやらないことにしています。'}</p>${taskList(b)}<button class="btn" id="undo">未実行に戻す</button><button class="btn quiet" id="x">閉じる</button>`);
-    el.querySelector('#undo').onclick = () => { delete store.status[key]; save(); closeSheet(); renderDay(); };
+    el.querySelector('#undo').onclick = () => { delete store.status[key]; window.TsugiCloud?.set('status:' + store.day, { entries: store.status }); save(); closeSheet(); renderDay(); };
     el.querySelector('#x').onclick = closeSheet; return;
   }
   const el = sheet(`<h2>${esc(b.name)}</h2><p>${b.steps.length}個のタスク、${secs(Math.round(b.dur * 60))}</p>${taskList(b)}<button class="btn" id="st" ${run ? 'disabled' : ''}>始める</button><button class="btn quiet" id="sk">今日はやらない</button>`);
   el.querySelector('#st').onclick = () => { closeSheet(); startRun(key); };
-  el.querySelector('#sk').onclick = () => { store.status[key] = { state: 'skip' }; save(); closeSheet(); renderDay(); };
+  el.querySelector('#sk').onclick = () => { store.status[key] = { state: 'skip' }; window.TsugiCloud?.set('status:' + store.day, { entries: store.status }); save(); closeSheet(); renderDay(); };
 }
 
 /* Editor */
 function openEditor() {
+  const editingKey = viewKey(), editingRevision = window.TsugiCloud?.revision('day:' + viewKey());
   const el = document.createElement('div'); el.className = 'editor'; el.id = 'editor';
   el.innerHTML = `<div class="inner gutter">
     <div class="bar-top" style="position:static"><button class="link" id="back">戻る</button></div>
@@ -536,8 +544,13 @@ function openEditor() {
   };
   $('back').onclick = () => el.remove();
   $('apply').onclick = () => {
+    if (window.TsugiCloud) TsugiCloud.set('day:' + editingKey, { text: ta.value }, editingRevision);
     const d = data(viewKey()); d.text = ta.value; delete d.sample; day = parseDay(d.text); save(); el.remove(); renderDay();
   };
+  if (window.TsugiCloud) {
+    const h = [...el.querySelectorAll('h2')].find(h => h.textContent === 'AIから登録');
+    if (h) { while (h.nextSibling) h.nextSibling.remove(); h.textContent = 'GPT連携・デバイス同期'; const p = document.createElement('p'); p.className = 'help'; p.textContent = '同じChatGPTアカウントで開くと自動同期します。GPT連携ページから「ツギ」を接続してください。'; h.after(p); }
+  }
 }
 
 /* Timer */
@@ -547,7 +560,8 @@ const leftNow = now => run.endAt != null ? run.endAt - now : run.left;
 function beginRun(b, key) {
   unlockAudio();
   const steps = b.steps.map(s => ({ ...s }));
-  run = { key, name: b.name, c0: b.c ? PAL.indexOf(b.c) : 0, steps, i: 0, auto: true, endAt: Date.now() + steps[0].sec * 1000, left: 0, spent: steps.map(() => 0), warned: false, startedMin: nowMin() };
+  run = { id: crypto.randomUUID(), date: dayKey(), key, name: b.name, c0: b.c ? PAL.indexOf(b.c) : 0, steps, i: 0, auto: true, endAt: Date.now() + steps[0].sec * 1000, left: 0, spent: steps.map(() => 0), warned: false, startedMin: nowMin() };
+  ownsTimer = true; run.owner = window.TsugiCloud?.device;
   store.run = run; save(); showRun(); chime(); renderDay();
 }
 function startRun(key) { const b = day.timed.find(x => x.key === key); if (b && b.routine && !run) beginRun(b, key); }
@@ -568,6 +582,7 @@ function showRun() {
   overlay.innerHTML = `<div class="run" id="run"><div class="layer">${layerHTML(false)}</div><div class="layer level" id="level" inert aria-hidden="true">${layerHTML(true)}</div></div>`;
   $('run').addEventListener('click', e => {
     const b = e.target.closest('[data-act]'); if (!b) return;
+    if (b.dataset.act !== 'close') { ownsTimer = true; run.owner = window.TsugiCloud?.device; }
     ({ close: openStop, plus: addMinute, prev: goPrev, next: goNext, toggle: togglePause })[b.dataset.act]();
   });
   paintStep(); runTick();
@@ -636,15 +651,16 @@ function addMinute() { run.steps[run.i].sec += 60; if (run.endAt != null) run.en
 function openStop() {
   const el = sheet(`<h2>このルーティンをやめますか</h2><p>未実行に戻り、地図の上で今の時刻に移動します。</p><button class="btn" id="keep">続ける</button><button class="btn quiet" id="quit" style="color:var(--warn)">やめる</button>`);
   el.querySelector('#keep').onclick = closeSheet;
-  el.querySelector('#quit').onclick = () => { closeSheet(); run = null; store.run = null; save(); overlay.innerHTML = ''; view = 'day'; applyPending(); renderDay(); };
+  el.querySelector('#quit').onclick = () => { closeSheet(); ownsTimer = true; window.TsugiCloud?.result(run, 'stopped'); run = null; store.run = null; save(); overlay.innerHTML = ''; view = 'day'; applyPending(); renderDay(); };
 }
 function finish() {
   const r = run, spent = r.spent.reduce((a, b) => a + b, 0), planned = r.steps.reduce((a, s) => a + s.sec, 0);
-  if (r.key) store.status[r.key] = { state: 'done', start: r.startedMin, end: nowMin() };
+  if (ownsTimer) window.TsugiCloud?.result(r, 'timer_finished');
+  if (r.key && (!window.TsugiCloud || ownsTimer)) { store.status[r.key] = { state: 'done', start: r.startedMin, end: nowMin() }; window.TsugiCloud?.set('status:' + store.day, { entries: store.status }); }
   run = null; store.run = null; save(); view = 'done'; applyPending();
   overlay.innerHTML = `<div class="done"><div class="stripes">${r.steps.map((s, i) => `<div class="stripe" style="flex:${s.sec} 1 auto;--c:${color((r.c0 || 0) + i)};--n:${i}"><span>${esc(s.name)}</span><span>${fmt(s.sec)}</span></div>`).join('')}</div>
-    <div class="done-foot"><h1>${esc(r.name)}、完了</h1><p>かかった時間 ${fmt(Math.round(spent / 1000))}（予定 ${fmt(planned)}）</p><button class="btn" id="home">地図に戻る</button></div></div>`;
-  $('home').onclick = () => { overlay.innerHTML = ''; view = 'day'; renderDay(); };
+    <div class="done-foot"><h1>${esc(r.name)}、時間終了</h1><p>かかった時間 ${fmt(Math.round(spent / 1000))}（予定 ${fmt(planned)}）</p><button class="btn" id="home">完了を記録して戻る</button></div></div>`;
+  $('home').onclick = () => { window.TsugiCloud?.result(r, 'done'); overlay.innerHTML = ''; view = 'day'; renderDay(); };
   chime(); renderDay();
 }
 
@@ -655,6 +671,23 @@ setInterval(() => {
   if (document.visibilityState === 'visible' && Date.now() - lastSync >= 60000) syncNow();
 }, 200);
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { holdWake(); lastMinute = -1; syncNow(); } });
+function cloudUpdate(key, value) {
+  applyingCloud = true;
+  try {
+    if (key.startsWith('day:') && value) {
+      const k = key.slice(4); store.days[k] = { text: value.text };
+      if (k === viewKey()) day = parseDay(value.text);
+    }
+    if (key.startsWith('status:') && key.slice(7) === dayKey()) store.status = value?.entries || {};
+    if (key === 'timer:map') {
+      if (value) { ownsTimer = value.owner === TsugiCloud.device; run = store.run = value; showRun(); }
+      else if (run) { run = store.run = null; overlay.innerHTML = ''; view = 'day'; }
+    }
+    try { localStorage.setItem(KEY, JSON.stringify(store)); } catch {}
+    renderDay();
+  } finally { applyingCloud = false; }
+}
+cloudWrites = true;
 holdWake();
 if (run) showRun();
 renderDay();
