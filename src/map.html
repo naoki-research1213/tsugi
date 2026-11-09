@@ -77,7 +77,7 @@ svg{display:block;fill:currentColor}
 #text:focus{box-shadow:0 0 0 2px var(--fg)}
 .errors{margin:12px 0 0;padding:0;list-style:none;color:var(--warn);font-size:14px;display:grid;gap:4px;overflow-wrap:anywhere}
 .tabs{display:flex;gap:4px}
-.tab{min-height:38px;padding:0 11px;border-radius:10px;font-size:14px;font-weight:700;color:var(--muted)}
+.tab{min-height:38px;padding:0 8px;border-radius:10px;font-size:13px;white-space:nowrap;font-weight:700;color:var(--muted)}
 .tab[aria-pressed=true]{background:var(--fg);color:#000}
 .day-title{font-size:clamp(44px,8vw,96px);font-weight:900;line-height:1.15}
 .day-date{color:var(--muted);font-size:18px;font-weight:700}
@@ -185,7 +185,9 @@ const nowMin = () => (Date.now() - dayBase().getTime()) / 60000;
 const dateAt = n => new Date(dayBase().getTime() + n * 86400000);
 const keyAt = n => { const d = dateAt(n); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
 const dayKey = () => keyAt(0);
-const LABEL = ['今日', '明日', 'あさって'];
+const WEEK = '日月火水木金土';
+const tabLabel = n => { const d = dateAt(n); return `${d.getMonth() + 1}/${d.getDate()}(${WEEK[d.getDay()]})`; };
+const dayTitle = n => { const d = dateAt(n); return `${d.getMonth() + 1}月${d.getDate()}日`; };
 const dateLabel = n => { const d = dateAt(n); return `${d.getMonth() + 1}月${d.getDate()}日（${'日月火水木金土'[d.getDay()]}）`; };
 const hm = m => { const r = Math.round(m) % 1440; return Math.floor(r / 60) + ':' + String(r % 60).padStart(2, '0'); };
 const fmt = sec => { const a = Math.abs(Math.round(sec)); return Math.floor(a / 60) + ':' + String(a % 60).padStart(2, '0'); };
@@ -409,7 +411,7 @@ function renderDay() {
   }
   const live = offset === 0, now = nowMin(), items = schedule(now), d = data(viewKey());
   if (live) callDue(items, now);
-  const tabs = LABEL.map((l, i) => `<button class="tab" data-day="${i}" aria-pressed="${i === offset}">${l}</button>`).join('');
+  const tabs = [0, 1, 2].map(i => `<button class="tab" data-day="${i}" aria-pressed="${i === offset}">${tabLabel(i)}</button>`).join('');
   const top = `<div class="bar-top"><span class="brand">ツギ</span><div class="tabs">${tabs}</div><button class="link" id="edit">編集</button></div>`;
   const sampleNote = d.sample ? '<p class="hint">表示中の予定は例です。「編集」から差し替えられます。</p>' : '';
   if (live) {
@@ -431,7 +433,7 @@ function renderDay() {
   } else {
     const routines = day.timed.filter(b => b.routine).length;
     $('now').innerHTML = `${top}
-      <div><div class="day-title">${LABEL[offset]}</div><div class="day-date">${dateLabel(offset)}</div></div>
+      <div><div class="day-title">${dayTitle(offset)}</div><div class="day-date">${WEEK[dateAt(offset).getDay()]}曜日</div></div>
       <p class="nothing">${items.length ? `${items.length}件の予定${routines ? `、ルーティン${routines}個` : ''}。最初は${hm(items[0].start)}の${esc(items[0].b.name)}` : 'この日の予定はまだありません。「編集」から入れられます。'}</p>
       <p class="hint" id="syncLine"></p>`;
   }
@@ -511,7 +513,7 @@ function openEditor() {
   const el = document.createElement('div'); el.className = 'editor'; el.id = 'editor';
   el.innerHTML = `<div class="inner gutter">
     <div class="bar-top" style="position:static"><button class="link" id="back">戻る</button></div>
-    <h1>${LABEL[offset]}の予定</h1>
+    <h1>${dateLabel(offset)}の予定</h1>
     <p class="help">空行でブロックを区切ります。タスクの行がなければ動かない予定、あればルーティンになります。時刻のないルーティンは「いつでも」に入ります。0時から3時台は、その日の深夜として扱います。</p>
     <div class="format">07:00 朝の支度
 水を飲む 01:00 コップ1杯
@@ -549,7 +551,7 @@ function openEditor() {
   };
   if (window.TsugiCloud) {
     const h = [...el.querySelectorAll('h2')].find(h => h.textContent === 'AIから登録');
-    if (h) { while (h.nextSibling) h.nextSibling.remove(); h.textContent = 'GPT連携・デバイス同期'; const p = document.createElement('p'); p.className = 'help'; p.textContent = '同じChatGPTアカウントで開くと自動同期します。GPT連携ページから「ツギ」を接続してください。'; h.after(p); }
+    if (h) { while (h.nextSibling) h.nextSibling.remove(); h.textContent = 'GPT連携・デバイス同期'; const p = document.createElement('p'); p.className = 'help'; p.textContent = '同じChatGPTアカウントで開くと自動同期します。'; h.after(p); const link = document.createElement('a'); link.href = '/connect'; link.className = 'btn quiet'; link.textContent = 'GPT連携の設定を開く'; link.style.cssText = 'line-height:56px;text-decoration:none'; p.after(link); }
   }
 }
 

@@ -9,6 +9,9 @@
   const keep=()=>{try{localStorage.setItem(cacheKey,JSON.stringify(pending));}catch{status='端末に保存できません。画面を閉じずに同期してください';}};
   function paint() {
     const el=document.getElementById('cloud-state'); if(!el) return;
+    const quiet=['同期済み','接続しています','保存しています','端末に保存済み・同期待ち','端末に保存済み・オンライン復帰後に同期'];
+    // Only problems reach the screen. Routine sync stays out of sight.
+    el.hidden=!conflicts.size && quiet.includes(status);
     el.replaceChildren();
     const label=document.createElement('span');label.textContent=conflicts.size?'別の端末で変更されています。選択するまでこの端末の変更を保持します':status;el.append(label);
     if(conflicts.size) for(const [key] of conflicts) {
@@ -91,9 +94,9 @@
   addEventListener('online',()=>{status='接続しています';poll();});
   addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')poll();});
   addEventListener('DOMContentLoaded',()=>{
-    const style=document.createElement('style');style.textContent='#cloud-state{position:fixed;z-index:20;top:0;left:0;right:0;background:#17161c;color:#ccc;font:12px sans-serif;padding:5px 12px;line-height:1.5}#cloud-state button{margin:5px;padding:8px;border:1px solid #aaa;border-radius:6px;color:white;background:#222}body{padding-top:28px}#cloud-nav{display:flex;gap:18px;font:14px sans-serif;padding:12px 16px;background:#111}#cloud-nav a{color:#f7e07a}';document.head.append(style);
+    const style=document.createElement('style');style.textContent='#cloud-state{position:fixed;z-index:20;top:0;left:0;right:0;background:#17161c;color:#ff9fa8;font:700 13px/1.5 "Zen Maru Gothic","Noto Sans JP",sans-serif;padding:calc(10px + env(safe-area-inset-top,0px)) 16px 10px}#cloud-state p{margin:6px 0 0;color:#fff}#cloud-state button{margin:6px 6px 0 0;min-height:40px;padding:0 12px;border:0;border-radius:10px;color:#000;background:#fff;font:inherit}#cloud-nav{display:flex;gap:4px;font:700 14px "Zen Maru Gothic","Noto Sans JP",sans-serif;padding:calc(8px + env(safe-area-inset-top,0px)) max(16px,env(safe-area-inset-right,0px)) 0 max(16px,env(safe-area-inset-left,0px));background:#000}#cloud-nav a{display:flex;align-items:center;min-height:38px;padding:0 12px;border-radius:10px;color:#a09eaa;text-decoration:none}#cloud-nav a[aria-current=page]{background:#fff;color:#000}@media (min-width:900px) and (orientation:landscape){body:has(.shell){display:flex;flex-direction:column}body:has(.shell) .shell{height:auto;flex:1;min-height:0}}';document.head.append(style);
     const bar=document.createElement('div');bar.id='cloud-state';bar.setAttribute('role','status');document.body.prepend(bar);
-    const nav=document.createElement('nav');nav.id='cloud-nav';nav.innerHTML='<a href="/">ルーティン</a><a href="/map/">予定の地図</a><a href="/connect">GPT連携</a>';document.body.insertBefore(nav,bar.nextSibling);paint();
+    const nav=document.createElement('nav');nav.id='cloud-nav';const here=location.pathname.startsWith('/map')?'map':'home';nav.innerHTML=`<a href="/" ${here==='home'?'aria-current="page"':''}>ルーティン</a><a href="/map/" ${here==='map'?'aria-current="page"':''}>予定の地図</a>`;document.body.insertBefore(nav,bar.nextSibling);paint();
   });
   setInterval(()=>{if(document.visibilityState==='visible')poll();},5000);
 })();
