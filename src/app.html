@@ -186,7 +186,14 @@ function load() {
   return defaults();
 }
 let store = load();
-function save() { try { localStorage.setItem(KEY, JSON.stringify(store)); } catch (e) {} }
+function save() {
+  try { localStorage.setItem(KEY, JSON.stringify(store)); } catch (e) {}
+  if (window.TsugiCloud && !applyingCloud) {
+    TsugiCloud.set('library', { routines: store.routines });
+    if (ownsTimer) TsugiCloud.set('timer:app', store.run);
+  }
+}
+let applyingCloud = false, ownsTimer = false;
 
 const fmt = sec => { const a = Math.abs(Math.round(sec)); return Math.floor(a / 60) + ':' + String(a % 60).padStart(2, '0'); };
 const clock = ms => { const d = new Date(ms); return d.getHours() + ':' + String(d.getMinutes()).padStart(2, '0'); };
@@ -444,7 +451,8 @@ function startRun(id) {
   const steps = usable(r).map((s, i) => ({ name: s.name.trim() || `タスク${i + 1}`, sec: s.sec, note: (s.note || '').trim() }));
   if (!steps.length) return;
   unlockAudio();
-  run = { name: r.name.trim() || '名前なし', auto: r.auto !== false, steps, i: 0, endAt: Date.now() + steps[0].sec * 1000, left: 0, spent: steps.map(() => 0), warned: false, over: false };
+  run = { id: crypto.randomUUID(), date: window.TsugiCloud ? TsugiCloud.date() : new Date().toLocaleDateString('sv'), name: r.name.trim() || '名前なし', auto: r.auto !== false, steps, i: 0, endAt: Date.now() + steps[0].sec * 1000, left: 0, spent: steps.map(() => 0), warned: false, over: false };
+  ownsTimer = true; run.owner = window.TsugiCloud?.device;
   store.run = run; save();
   showRun();
   chime();
@@ -479,6 +487,7 @@ function showRun() {
   document.getElementById('run').addEventListener('click', e => {
     const b = e.target.closest('[data-act]'); if (!b || b.disabled) return;
     unlockAudio();
+    if (b.dataset.act !== 'close') { ownsTimer = true; run.owner = window.TsugiCloud?.device; }
     ({ close: openStopSheet, plus: addMinute, prev: goPrev, next: goNext, toggle: togglePause })[b.dataset.act]();
   });
   holdWake();
@@ -613,18 +622,19 @@ function openStopSheet() {
   document.body.appendChild(el);
   document.getElementById('keep').focus();
   document.getElementById('keep').onclick = () => el.remove();
-  document.getElementById('quit').onclick = () => { el.remove(); stopTimer(); toHome(); };
+    document.getElementById('quit').onclick = () => { el.remove(); ownsTimer = true; window.TsugiCloud?.result(run, 'stopped'); stopTimer(); toHome(); };
 }
 function finish() {
   const r = run, spent = r.spent.reduce((a, b) => a + b, 0);
   const planned = r.steps.reduce((a, s) => a + s.sec, 0);
+  if (ownsTimer) window.TsugiCloud?.result(r, 'timer_finished');
   stopTimer();
   view = 'done';
   app.innerHTML = `<div class="done">
     <div class="stripes">${r.steps.map((s, i) => `<div class="stripe" style="flex:${s.sec} 1 auto;--c:${color(i)};--n:${i}"><span>${esc(s.name)}</span><span>${fmt(s.sec)}</span></div>`).join('')}</div>
-    <div class="done-foot"><h1>${esc(r.name)}、完了</h1><p>かかった時間 ${fmt(Math.round(spent / 1000))}（予定 ${fmt(planned)}）</p><button class="btn" id="home">ホームに戻る</button></div>
+    <div class="done-foot"><h1>${esc(r.name)}、時間終了</h1><p>かかった時間 ${fmt(Math.round(spent / 1000))}（予定 ${fmt(planned)}）</p><button class="btn" id="home">完了を記録して戻る</button></div>
   </div>`;
-  document.getElementById('home').onclick = toHome;
+  document.getElementById('home').onclick = () => { window.TsugiCloud?.result(r, 'done'); toHome(); };
   chime();
 }
 document.addEventListener('visibilitychange', () => {
@@ -634,5 +644,21 @@ document.addEventListener('visibilitychange', () => {
 /* Boot: a timer that was running when the app closed picks up where the clock says it should be. */
 if (store.run && store.run.steps && store.run.steps.length) { run = store.run; showRun(); }
 else { store.run = null; renderHome(); }
+if (window.TsugiCloud) TsugiCloud.watch(['library', 'timer:app'], (key, value) => {
+  applyingCloud = true;
+  try {
+    if (key === 'library' && value) {
+      if (editing) { try { localStorage.setItem('tsugi.edit.backup', JSON.stringify(editing)); } catch {} editing = null; view = 'home'; }
+      store.routines = value.routines;
+      if (view === 'home') renderHome();
+    }
+    if (key === 'library' && !value && store.routines.some(r => !r.sample)) TsugiCloud.set('library', { routines: store.routines });
+    if (key === 'timer:app') {
+      if (value) { ownsTimer = value.owner === TsugiCloud.device; run = store.run = value; showRun(); }
+      else if (run) { clearInterval(tickId); run = store.run = null; if (view === 'run') toHome(); }
+    }
+    try { localStorage.setItem(KEY, JSON.stringify(store)); } catch {}
+  } finally { applyingCloud = false; }
+});
 })();
 </script>

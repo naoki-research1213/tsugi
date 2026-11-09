@@ -1,0 +1,6 @@
+CREATE TABLE records (
+  key TEXT PRIMARY KEY NOT NULL,
+  value TEXT NOT NULL,
+  revision INTEGER NOT NULL DEFAULT 1,
+  updated_at TEXT NOT NULL
+);

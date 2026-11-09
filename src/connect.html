@@ -1,0 +1,14 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ツギとGPTをつなぐ</title><style>body{margin:32px auto;padding:16px;max-width:640px;background:#000;color:#fff;font:16px/1.8 sans-serif}h1{font-size:28px}h2{font-size:20px;margin-top:32px}a{color:#f7e07a}code,pre{background:#222;border-radius:6px;padding:8px;overflow-wrap:anywhere;white-space:pre-wrap}li{margin:12px 0}</style></head><body>
+<a href="/">← ツギに戻る</a><h1>ツギとGPTをつなぐ</h1>
+<h2>ChatGPTの通常チャット</h2><ol><li>ChatGPTのプラグイン一覧で「ツギ」をインストール・接続します。「個人 → 自分が作成」の中にあります。</li><li>チャットで「ツギ」を選んで「明日の朝の支度を登録して」「今日の完了状況を確認して」と伝えます。</li></ol>
+<p>GPTが登録した予定は「予定の地図」に反映されます。ルーティンの追加を依頼した場合は「ルーティン」に入ります。</p>
+<h2>スマホ・PCの同期</h2><p>各端末でこのアプリを開き、同じChatGPTアカウントでログインしてください。画面を開いている間は約5秒ごとに更新します。オフラインの変更は端末に残し、復帰後に送信します。同時に編集した場合は選択画面が出ます。</p>
+<h2>完了の確認</h2><p>タイマー終了後に「完了を記録して戻る」を押すと本人確認済みになります。タイマーが終了しただけの場合は「時間終了・本人未確認」としてGPTに伝わります。</p>
+<h2>カスタムGPT（Actions）</h2><p>Actions向けのAPI定義は <a href="/openapi.json">openapi.json</a> です。このアプリは本人専用の認証付きサイトなので、定義の登録だけでは接続できません。Sitesのサービスアクセス認証（OAI-Sites-Authorization）をActionsにも設定する必要があります。秘密のトークンをチャットや予定本文に貼り付けないでください。</p>
+<p>通常チャットでは上記の「ツギ」プラグイン接続が使えます。</p>
+<h2>入力例</h2><pre>07:00 朝の支度
+水を飲む 00:30 コップ1杯
+歯を磨く 03:00
+
+09:00-12:00 研究</pre>
+</body></html>
